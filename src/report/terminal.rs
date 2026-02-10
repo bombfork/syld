@@ -16,6 +16,53 @@ pub fn sort_packages(packages: &mut [InstalledPackage]) {
     });
 }
 
+/// A group of packages that share the same upstream project URL.
+#[derive(Debug)]
+pub struct ProjectGroup<'a> {
+    /// Normalized upstream URL used as the grouping key
+    pub url: String,
+    /// All packages belonging to this project
+    pub packages: Vec<&'a InstalledPackage>,
+}
+
+/// Normalize a URL for grouping purposes.
+///
+/// Strips trailing slashes, the scheme, and a leading "www." so that
+/// `https://www.qemu.org/` and `https://qemu.org` group together.
+pub fn normalize_url(url: &str) -> String {
+    let s = url.trim().trim_end_matches('/');
+    let s = s
+        .strip_prefix("https://")
+        .or_else(|| s.strip_prefix("http://"))
+        .unwrap_or(s);
+    let s = s.strip_prefix("www.").unwrap_or(s);
+    s.to_lowercase()
+}
+
+/// Group packages by their normalized upstream URL.
+///
+/// Packages without a URL are collected under a single empty-string key.
+/// The returned groups are sorted alphabetically by URL.
+pub fn group_by_project<'a>(packages: &'a [InstalledPackage]) -> Vec<ProjectGroup<'a>> {
+    let mut map: HashMap<String, Vec<&'a InstalledPackage>> = HashMap::new();
+
+    for pkg in packages {
+        let key = match &pkg.url {
+            Some(url) => normalize_url(url),
+            None => String::new(),
+        };
+        map.entry(key).or_default().push(pkg);
+    }
+
+    let mut groups: Vec<ProjectGroup<'a>> = map
+        .into_iter()
+        .map(|(url, packages)| ProjectGroup { url, packages })
+        .collect();
+
+    groups.sort_by(|a, b| a.url.cmp(&b.url));
+    groups
+}
+
 /// Print a summary of discovered packages to the terminal.
 pub fn print_summary(packages: &[InstalledPackage]) {
     if packages.is_empty() {
@@ -47,34 +94,33 @@ pub fn print_summary(packages: &[InstalledPackage]) {
     println!("{summary_table}");
     println!();
 
-    // Show packages with URLs (likely to have upstream projects)
-    let with_url: Vec<_> = packages.iter().filter(|p| p.url.is_some()).collect();
+    // Group by upstream project
+    let groups = group_by_project(packages);
+    let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
 
     if with_url.is_empty() {
         return;
     }
 
+    println!(
+        "{} packages grouped into {} upstream projects\n",
+        packages.len(),
+        with_url.len()
+    );
+
     let mut detail_table = Table::new();
     detail_table.set_content_arrangement(ContentArrangement::Dynamic);
-    detail_table.set_header(vec!["Package", "Version", "Source", "URL"]);
+    detail_table.set_header(vec!["Project URL", "Packages"]);
 
-    // Show first 20 as a preview
-    for pkg in with_url.iter().take(20) {
-        detail_table.add_row(vec![
-            &pkg.name,
-            &pkg.version,
-            &pkg.source.to_string(),
-            pkg.url.as_deref().unwrap_or(""),
-        ]);
+    for group in with_url.iter().take(20) {
+        let pkg_names: Vec<_> = group.packages.iter().map(|p| p.name.as_str()).collect();
+        detail_table.add_row(vec![group.url.as_str(), &pkg_names.join(", ")]);
     }
 
     println!("{detail_table}");
 
     if with_url.len() > 20 {
-        println!(
-            "\n  ... and {} more packages with upstream URLs",
-            with_url.len() - 20
-        );
+        println!("\n  ... and {} more projects", with_url.len() - 20);
     }
 }
 
@@ -92,6 +138,19 @@ mod tests {
             licenses: vec![],
         }
     }
+
+    fn make_pkg_with_url(name: &str, url: &str) -> InstalledPackage {
+        InstalledPackage {
+            name: name.to_string(),
+            version: "1.0".to_string(),
+            description: None,
+            url: Some(url.to_string()),
+            source: PackageSource::Pacman,
+            licenses: vec![],
+        }
+    }
+
+    // --- sort tests ---
 
     #[test]
     fn sort_alphabetically_case_insensitive() {
@@ -140,5 +199,102 @@ mod tests {
         sort_packages(&mut packages);
         let names: Vec<_> = packages.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, vec!["aaa", "bbb", "ccc"]);
+    }
+
+    // --- normalize_url tests ---
+
+    #[test]
+    fn normalize_strips_trailing_slash() {
+        assert_eq!(normalize_url("https://qemu.org/"), "qemu.org");
+    }
+
+    #[test]
+    fn normalize_strips_scheme() {
+        assert_eq!(normalize_url("https://example.com"), "example.com");
+        assert_eq!(normalize_url("http://example.com"), "example.com");
+    }
+
+    #[test]
+    fn normalize_strips_www() {
+        assert_eq!(normalize_url("https://www.qemu.org/"), "qemu.org");
+    }
+
+    #[test]
+    fn normalize_lowercases() {
+        assert_eq!(
+            normalize_url("https://GitHub.com/Foo/Bar"),
+            "github.com/foo/bar"
+        );
+    }
+
+    #[test]
+    fn normalize_preserves_path() {
+        assert_eq!(
+            normalize_url("https://github.com/user/repo"),
+            "github.com/user/repo"
+        );
+    }
+
+    // --- group_by_project tests ---
+
+    #[test]
+    fn group_merges_same_url() {
+        let packages = vec![
+            make_pkg_with_url("qemu-system-x86", "https://www.qemu.org/"),
+            make_pkg_with_url("qemu-user", "https://qemu.org"),
+            make_pkg_with_url("qemu-img", "https://www.qemu.org"),
+        ];
+        let groups = group_by_project(&packages);
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        assert_eq!(with_url.len(), 1);
+        assert_eq!(with_url[0].packages.len(), 3);
+    }
+
+    #[test]
+    fn group_separates_different_urls() {
+        let packages = vec![
+            make_pkg_with_url("firefox", "https://www.mozilla.org/firefox/"),
+            make_pkg_with_url("bash", "https://www.gnu.org/software/bash"),
+        ];
+        let groups = group_by_project(&packages);
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        assert_eq!(with_url.len(), 2);
+    }
+
+    #[test]
+    fn group_collects_no_url_packages() {
+        let packages = vec![
+            make_pkg("orphan1", PackageSource::Pacman),
+            make_pkg("orphan2", PackageSource::Pacman),
+        ];
+        let groups = group_by_project(&packages);
+        assert_eq!(groups.len(), 1);
+        assert!(groups[0].url.is_empty());
+        assert_eq!(groups[0].packages.len(), 2);
+    }
+
+    #[test]
+    fn group_sorted_alphabetically() {
+        let packages = vec![
+            make_pkg_with_url("pkg-z", "https://z-project.org"),
+            make_pkg_with_url("pkg-a", "https://a-project.org"),
+        ];
+        let groups = group_by_project(&packages);
+        let urls: Vec<_> = groups.iter().map(|g| g.url.as_str()).collect();
+        assert_eq!(urls, vec!["a-project.org", "z-project.org"]);
+    }
+
+    #[test]
+    fn group_mixed_url_and_no_url() {
+        let packages = vec![
+            make_pkg_with_url("firefox", "https://mozilla.org"),
+            make_pkg("orphan", PackageSource::Pacman),
+        ];
+        let groups = group_by_project(&packages);
+        assert_eq!(groups.len(), 2);
+        // Empty-string key sorts first
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        assert_eq!(with_url.len(), 1);
+        assert_eq!(with_url[0].packages[0].name, "firefox");
     }
 }
