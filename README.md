@@ -8,21 +8,28 @@ syld scans your system's package managers, identifies the open source projects y
 
 - **Package discovery** — reads local package databases directly (no root needed)
 - **Privacy-first** — all processing is local by default, no network calls unless you opt in
-- **Donation planning** — set a monthly/yearly budget and get a plan to spread it across projects
-- **Enrichment (opt-in)** — fetch donation links, bug trackers, and contributing guides from upstream
-- **Multiple output formats** — terminal, JSON, HTML
-- **Systemd integration** — ship with a user-level timer for periodic scans
+- **Grouped output** — packages are grouped by upstream project and sorted alphabetically
+- **Pagination** — browse results incrementally with `--limit`
+
+### Planned
+
+- **Donation planning** — set a monthly/yearly budget and get a plan to spread it across projects ([#13](https://github.com/bombfork/syld/issues/13))
+- **Enrichment (opt-in)** — fetch donation links, bug trackers, and contributing guides from upstream ([#15](https://github.com/bombfork/syld/issues/15))
+- **Multiple output formats** — JSON and HTML reports ([#12](https://github.com/bombfork/syld/issues/12))
+- **Systemd integration** — user-level timer for periodic scans (unit files ship in `systemd/`)
 
 ### Supported package managers
 
 | Package manager | Status |
 |-----------------|--------|
 | pacman (Arch)   | Working |
-| apt (Debian/Ubuntu) | Planned |
-| dnf (Fedora/RHEL) | Planned |
-| Flatpak         | Planned |
-| Snap            | Planned |
-| Nix             | Planned |
+| apt (Debian/Ubuntu) | Planned ([#1](https://github.com/bombfork/syld/issues/1)) |
+| dnf (Fedora/RHEL) | Planned ([#2](https://github.com/bombfork/syld/issues/2)) |
+| Flatpak         | Planned ([#3](https://github.com/bombfork/syld/issues/3)) |
+| Snap            | Planned ([#4](https://github.com/bombfork/syld/issues/4)) |
+| Nix             | Planned ([#5](https://github.com/bombfork/syld/issues/5)) |
+| mise            | Planned ([#6](https://github.com/bombfork/syld/issues/6)) |
+| Homebrew/Linuxbrew | Planned ([#7](https://github.com/bombfork/syld/issues/7)) |
 
 ## Installation
 
@@ -52,21 +59,7 @@ systemctl --user enable --now syld.timer
 # Scan installed packages (default action)
 syld
 syld scan
-
-# Generate reports
-syld report
-syld report --format json
-syld report --enrich          # fetch donation links (network access)
-
-# Manage your support budget
-syld budget set 5 --cadence monthly
-syld budget plan
-syld budget plan --strategy weighted
-syld budget show
-
-# Configuration
-syld config show
-syld config edit
+syld scan --limit 50    # show more results (0 for all)
 ```
 
 ## Configuration
@@ -92,19 +85,13 @@ cadence = "monthly"
 
 ## Development
 
-This project uses [mise](https://mise.jdx.dev/) for tool management and tasks, and [hk](https://hk.jdx.dev/) for git hooks.
+This project uses [mise](https://mise.jdx.dev/) for tool management and tasks.
 
 ```sh
 mise install          # install toolchain
 mise run check        # run all checks (fmt, lint, build, test)
 mise run fmt          # auto-format
 mise run lint         # auto-fix clippy warnings
-```
-
-Pre-commit hooks (format + lint) are enforced via hk:
-
-```sh
-hk install --mise     # set up git hooks
 ```
 
 ## Privacy
