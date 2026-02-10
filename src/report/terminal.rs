@@ -6,6 +6,16 @@ use comfy_table::{ContentArrangement, Table};
 
 use crate::discover::{InstalledPackage, PackageSource};
 
+/// Sort packages alphabetically by name (case-insensitive), then by source.
+pub fn sort_packages(packages: &mut [InstalledPackage]) {
+    packages.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.source.cmp(&b.source))
+    });
+}
+
 /// Print a summary of discovered packages to the terminal.
 pub fn print_summary(packages: &[InstalledPackage]) {
     if packages.is_empty() {
@@ -25,8 +35,13 @@ pub fn print_summary(packages: &[InstalledPackage]) {
     summary_table.set_content_arrangement(ContentArrangement::Dynamic);
     summary_table.set_header(vec!["Source", "Packages"]);
 
-    for (source, pkgs) in &by_source {
-        summary_table.add_row(vec![source.to_string(), pkgs.len().to_string()]);
+    let mut sources: Vec<_> = by_source.keys().collect();
+    sources.sort();
+    for source in sources {
+        summary_table.add_row(vec![
+            source.to_string(),
+            by_source[source].len().to_string(),
+        ]);
     }
 
     println!("{summary_table}");
@@ -60,5 +75,70 @@ pub fn print_summary(packages: &[InstalledPackage]) {
             "\n  ... and {} more packages with upstream URLs",
             with_url.len() - 20
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_pkg(name: &str, source: PackageSource) -> InstalledPackage {
+        InstalledPackage {
+            name: name.to_string(),
+            version: "1.0".to_string(),
+            description: None,
+            url: None,
+            source,
+            licenses: vec![],
+        }
+    }
+
+    #[test]
+    fn sort_alphabetically_case_insensitive() {
+        let mut packages = vec![
+            make_pkg("zsh", PackageSource::Pacman),
+            make_pkg("Alacritty", PackageSource::Pacman),
+            make_pkg("bash", PackageSource::Pacman),
+        ];
+        sort_packages(&mut packages);
+        let names: Vec<_> = packages.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["Alacritty", "bash", "zsh"]);
+    }
+
+    #[test]
+    fn sort_same_name_by_source() {
+        let mut packages = vec![
+            make_pkg("firefox", PackageSource::Flatpak),
+            make_pkg("firefox", PackageSource::Pacman),
+        ];
+        sort_packages(&mut packages);
+        assert_eq!(packages[0].source, PackageSource::Pacman);
+        assert_eq!(packages[1].source, PackageSource::Flatpak);
+    }
+
+    #[test]
+    fn sort_empty_is_noop() {
+        let mut packages: Vec<InstalledPackage> = vec![];
+        sort_packages(&mut packages);
+        assert!(packages.is_empty());
+    }
+
+    #[test]
+    fn sort_single_element() {
+        let mut packages = vec![make_pkg("vim", PackageSource::Pacman)];
+        sort_packages(&mut packages);
+        assert_eq!(packages[0].name, "vim");
+    }
+
+    #[test]
+    fn sort_already_sorted() {
+        let mut packages = vec![
+            make_pkg("aaa", PackageSource::Pacman),
+            make_pkg("bbb", PackageSource::Pacman),
+            make_pkg("ccc", PackageSource::Pacman),
+        ];
+        sort_packages(&mut packages);
+        let names: Vec<_> = packages.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["aaa", "bbb", "ccc"]);
     }
 }

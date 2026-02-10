@@ -133,6 +133,7 @@ fn cmd_scan(config: &Config) -> Result<()> {
     }
 
     eprintln!("\nTotal: {} packages discovered", all_packages.len());
+    terminal::sort_packages(&mut all_packages);
     terminal::print_summary(&all_packages);
 
     Ok(())

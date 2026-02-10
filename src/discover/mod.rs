@@ -25,7 +25,7 @@ pub struct InstalledPackage {
 }
 
 /// The package manager that installed a package.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PackageSource {
     Pacman,
     Apt,
