@@ -47,14 +47,18 @@ impl Discoverer for PacmanDiscoverer {
     }
 }
 
-/// Parse a pacman desc file into an InstalledPackage.
-///
-/// The desc file format uses %FIELD% headers followed by values on subsequent lines,
-/// separated by blank lines.
+/// Read and parse a pacman desc file into an InstalledPackage.
 fn parse_desc(path: &Path) -> Result<InstalledPackage> {
     let content =
         fs::read_to_string(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    parse_desc_content(&content)
+}
 
+/// Parse the content of a pacman desc file into an InstalledPackage.
+///
+/// The desc file format uses %FIELD% headers followed by values on subsequent lines,
+/// separated by blank lines.
+fn parse_desc_content(content: &str) -> Result<InstalledPackage> {
     let mut name = None;
     let mut version = None;
     let mut description = None;
@@ -94,4 +98,121 @@ fn parse_desc(path: &Path) -> Result<InstalledPackage> {
         source: PackageSource::Pacman,
         licenses,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_full_desc() {
+        let content = "\
+%NAME%
+firefox
+
+%VERSION%
+128.0-1
+
+%DESC%
+Fast, Private & Safe Web Browser
+
+%URL%
+https://www.mozilla.org/firefox/
+
+%LICENSE%
+MPL-2.0
+GPL-2.0-only
+LGPL-2.1-only
+
+%DEPENDS%
+dbus-glib
+gtk3
+";
+        let pkg = parse_desc_content(content).unwrap();
+        assert_eq!(pkg.name, "firefox");
+        assert_eq!(pkg.version, "128.0-1");
+        assert_eq!(
+            pkg.description.as_deref(),
+            Some("Fast, Private & Safe Web Browser")
+        );
+        assert_eq!(pkg.url.as_deref(), Some("https://www.mozilla.org/firefox/"));
+        assert_eq!(pkg.source, PackageSource::Pacman);
+        assert_eq!(
+            pkg.licenses,
+            vec!["MPL-2.0", "GPL-2.0-only", "LGPL-2.1-only"]
+        );
+    }
+
+    #[test]
+    fn parse_minimal_desc() {
+        let content = "\
+%NAME%
+coreutils
+
+%VERSION%
+9.5-1
+";
+        let pkg = parse_desc_content(content).unwrap();
+        assert_eq!(pkg.name, "coreutils");
+        assert_eq!(pkg.version, "9.5-1");
+        assert_eq!(pkg.description, None);
+        assert_eq!(pkg.url, None);
+        assert!(pkg.licenses.is_empty());
+    }
+
+    #[test]
+    fn parse_missing_name_errors() {
+        let content = "\
+%VERSION%
+1.0.0
+";
+        let err = parse_desc_content(content).unwrap_err();
+        assert!(err.to_string().contains("NAME"));
+    }
+
+    #[test]
+    fn parse_missing_version_errors() {
+        let content = "\
+%NAME%
+something
+";
+        let err = parse_desc_content(content).unwrap_err();
+        assert!(err.to_string().contains("VERSION"));
+    }
+
+    #[test]
+    fn parse_ignores_unknown_fields() {
+        let content = "\
+%NAME%
+pkg
+
+%VERSION%
+1.0
+
+%BUILDDATE%
+1700000000
+
+%PACKAGER%
+Someone <someone@example.com>
+";
+        let pkg = parse_desc_content(content).unwrap();
+        assert_eq!(pkg.name, "pkg");
+        assert_eq!(pkg.version, "1.0");
+    }
+
+    #[test]
+    fn parse_single_license() {
+        let content = "\
+%NAME%
+mit-pkg
+
+%VERSION%
+0.1
+
+%LICENSE%
+MIT
+";
+        let pkg = parse_desc_content(content).unwrap();
+        assert_eq!(pkg.licenses, vec!["MIT"]);
+    }
 }

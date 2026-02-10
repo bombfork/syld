@@ -18,7 +18,7 @@ pub struct Config {
     pub enrich: bool,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct BudgetConfig {
     /// Monthly budget amount (in user's currency)
     pub amount: Option<f64>,
@@ -30,6 +30,16 @@ pub struct BudgetConfig {
     /// Budget cadence
     #[serde(default)]
     pub cadence: Cadence,
+}
+
+impl Default for BudgetConfig {
+    fn default() -> Self {
+        Self {
+            amount: None,
+            currency: default_currency(),
+            cadence: Cadence::default(),
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -82,4 +92,55 @@ impl Config {
 
 fn project_dirs() -> Result<ProjectDirs> {
     ProjectDirs::from("", "", "syld").context("Could not determine home directory")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_full_config() {
+        let toml = r#"
+enrich = true
+
+[budget]
+amount = 10.0
+currency = "EUR"
+cadence = "yearly"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.enrich);
+        assert_eq!(config.budget.amount, Some(10.0));
+        assert_eq!(config.budget.currency, "EUR");
+        assert!(matches!(config.budget.cadence, Cadence::Yearly));
+    }
+
+    #[test]
+    fn parse_empty_config() {
+        let config: Config = toml::from_str("").unwrap();
+        assert!(!config.enrich);
+        assert_eq!(config.budget.amount, None);
+        assert_eq!(config.budget.currency, "USD");
+        assert!(matches!(config.budget.cadence, Cadence::Monthly));
+    }
+
+    #[test]
+    fn parse_partial_config() {
+        let toml = r#"
+[budget]
+amount = 5.0
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(!config.enrich);
+        assert_eq!(config.budget.amount, Some(5.0));
+        assert_eq!(config.budget.currency, "USD");
+        assert!(matches!(config.budget.cadence, Cadence::Monthly));
+    }
+
+    #[test]
+    fn config_paths_are_under_syld() {
+        let path = Config::config_path().unwrap();
+        assert!(path.to_string_lossy().contains("syld"));
+        assert!(path.to_string_lossy().ends_with("config.toml"));
+    }
 }
