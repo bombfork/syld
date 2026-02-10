@@ -63,8 +63,21 @@ pub fn group_by_project<'a>(packages: &'a [InstalledPackage]) -> Vec<ProjectGrou
     groups
 }
 
+/// Return a page of items from a slice, plus how many remain.
+///
+/// A `limit` of 0 means "show all".
+pub fn paginate<T>(items: &[T], limit: usize) -> (&[T], usize) {
+    if limit == 0 || limit >= items.len() {
+        (items, 0)
+    } else {
+        (&items[..limit], items.len() - limit)
+    }
+}
+
 /// Print a summary of discovered packages to the terminal.
-pub fn print_summary(packages: &[InstalledPackage]) {
+///
+/// `limit` controls how many project groups to display (0 = all).
+pub fn print_summary(packages: &[InstalledPackage], limit: usize) {
     if packages.is_empty() {
         println!("No packages found.");
         return;
@@ -108,19 +121,24 @@ pub fn print_summary(packages: &[InstalledPackage]) {
         with_url.len()
     );
 
+    let (page, remaining) = paginate(&with_url, limit);
+
     let mut detail_table = Table::new();
     detail_table.set_content_arrangement(ContentArrangement::Dynamic);
     detail_table.set_header(vec!["Project URL", "Packages"]);
 
-    for group in with_url.iter().take(20) {
+    for group in page {
         let pkg_names: Vec<_> = group.packages.iter().map(|p| p.name.as_str()).collect();
         detail_table.add_row(vec![group.url.as_str(), &pkg_names.join(", ")]);
     }
 
     println!("{detail_table}");
 
-    if with_url.len() > 20 {
-        println!("\n  ... and {} more projects", with_url.len() - 20);
+    if remaining > 0 {
+        println!(
+            "\n  ... and {} more projects (use --limit 0 to show all)",
+            remaining
+        );
     }
 }
 
@@ -283,6 +301,58 @@ mod tests {
         let urls: Vec<_> = groups.iter().map(|g| g.url.as_str()).collect();
         assert_eq!(urls, vec!["a-project.org", "z-project.org"]);
     }
+
+    // --- paginate tests ---
+
+    #[test]
+    fn paginate_returns_all_when_limit_zero() {
+        let items = vec![1, 2, 3, 4, 5];
+        let (page, remaining) = paginate(&items, 0);
+        assert_eq!(page, &[1, 2, 3, 4, 5]);
+        assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn paginate_returns_all_when_limit_exceeds_len() {
+        let items = vec![1, 2, 3];
+        let (page, remaining) = paginate(&items, 10);
+        assert_eq!(page, &[1, 2, 3]);
+        assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn paginate_truncates_with_remaining() {
+        let items = vec![1, 2, 3, 4, 5];
+        let (page, remaining) = paginate(&items, 3);
+        assert_eq!(page, &[1, 2, 3]);
+        assert_eq!(remaining, 2);
+    }
+
+    #[test]
+    fn paginate_limit_equals_len() {
+        let items = vec![1, 2, 3];
+        let (page, remaining) = paginate(&items, 3);
+        assert_eq!(page, &[1, 2, 3]);
+        assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn paginate_empty_slice() {
+        let items: Vec<i32> = vec![];
+        let (page, remaining) = paginate(&items, 5);
+        assert!(page.is_empty());
+        assert_eq!(remaining, 0);
+    }
+
+    #[test]
+    fn paginate_limit_one() {
+        let items = vec![10, 20, 30];
+        let (page, remaining) = paginate(&items, 1);
+        assert_eq!(page, &[10]);
+        assert_eq!(remaining, 2);
+    }
+
+    // --- group tests ---
 
     #[test]
     fn group_mixed_url_and_no_url() {

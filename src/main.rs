@@ -21,7 +21,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     /// Discover installed open source packages
-    Scan,
+    Scan {
+        /// Maximum number of projects to display (0 for all)
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
 
     /// Generate a report from the last scan
     Report {
@@ -103,14 +107,15 @@ fn main() -> Result<()> {
     let config = Config::load()?;
 
     match cli.command {
-        None | Some(Commands::Scan) => cmd_scan(&config),
+        None => cmd_scan(&config, 20),
+        Some(Commands::Scan { limit }) => cmd_scan(&config, limit),
         Some(Commands::Report { format, enrich: _ }) => cmd_report(&config, &format),
         Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
     }
 }
 
-fn cmd_scan(config: &Config) -> Result<()> {
+fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
     let discoverers = discover::active_discoverers(config);
 
     if discoverers.is_empty() {
@@ -134,7 +139,7 @@ fn cmd_scan(config: &Config) -> Result<()> {
 
     eprintln!("\nTotal: {} packages discovered", all_packages.len());
     terminal::sort_packages(&mut all_packages);
-    terminal::print_summary(&all_packages);
+    terminal::print_summary(&all_packages, limit);
 
     Ok(())
 }
