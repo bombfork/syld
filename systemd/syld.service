@@ -1,0 +1,7 @@
+[Unit]
+Description=Support Your Linux Desktop — periodic scan
+Documentation=https://github.com/bombfork/syld
+
+[Service]
+Type=oneshot
+ExecStart=%h/.cargo/bin/syld scan

@@ -1,0 +1,11 @@
+[Unit]
+Description=Support Your Linux Desktop — weekly scan timer
+Documentation=https://github.com/bombfork/syld
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=3600
+
+[Install]
+WantedBy=timers.target

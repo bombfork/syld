@@ -1,0 +1,33 @@
+[tools]
+rust = "stable"
+"cargo:cargo-binstall" = "latest"
+hk = "latest"
+pkl = "latest"
+
+[tasks.fmt]
+description = "Format code"
+run = "cargo fmt"
+
+[tasks."fmt:check"]
+description = "Check code formatting"
+run = "cargo fmt --check"
+
+[tasks.lint]
+description = "Run clippy and fix warnings"
+run = "cargo clippy --fix --allow-dirty --allow-staged"
+
+[tasks."lint:check"]
+description = "Check for clippy warnings"
+run = "cargo clippy -- -D warnings"
+
+[tasks.build]
+description = "Build the project"
+run = "cargo build"
+
+[tasks.test]
+description = "Run tests"
+run = "cargo test"
+
+[tasks.check]
+description = "Run all checks (format, lint, build, test)"
+depends = ["fmt:check", "lint:check", "build", "test"]

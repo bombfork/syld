@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+use std::fs;
+use std::path::Path;
+
+use anyhow::{Context, Result};
+
+use super::{Discoverer, InstalledPackage, PackageSource};
+
+/// Discovers packages installed via pacman by reading the local database directly.
+///
+/// The pacman database lives at /var/lib/pacman/local/ and contains one directory
+/// per installed package. Each directory has a "desc" file with package metadata.
+pub struct PacmanDiscoverer;
+
+const PACMAN_DB_PATH: &str = "/var/lib/pacman/local";
+
+impl Discoverer for PacmanDiscoverer {
+    fn name(&self) -> &str {
+        "pacman"
+    }
+
+    fn is_available(&self) -> bool {
+        Path::new(PACMAN_DB_PATH).is_dir()
+    }
+
+    fn discover(&self) -> Result<Vec<InstalledPackage>> {
+        let db_path = Path::new(PACMAN_DB_PATH);
+        let mut packages = Vec::new();
+
+        let entries = fs::read_dir(db_path).context("Failed to read pacman database directory")?;
+
+        for entry in entries {
+            let entry = entry?;
+            let desc_path = entry.path().join("desc");
+            if desc_path.is_file() {
+                match parse_desc(&desc_path) {
+                    Ok(pkg) => packages.push(pkg),
+                    Err(e) => {
+                        eprintln!("  Warning: failed to parse {}: {}", desc_path.display(), e);
+                    }
+                }
+            }
+        }
+
+        Ok(packages)
+    }
+}
+
+/// Parse a pacman desc file into an InstalledPackage.
+///
+/// The desc file format uses %FIELD% headers followed by values on subsequent lines,
+/// separated by blank lines.
+fn parse_desc(path: &Path) -> Result<InstalledPackage> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("Failed to read {}", path.display()))?;
+
+    let mut name = None;
+    let mut version = None;
+    let mut description = None;
+    let mut url = None;
+    let mut licenses = Vec::new();
+
+    let mut current_field: Option<&str> = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        if line.starts_with('%') && line.ends_with('%') {
+            current_field = Some(line);
+            continue;
+        }
+
+        if line.is_empty() {
+            current_field = None;
+            continue;
+        }
+
+        match current_field {
+            Some("%NAME%") => name = Some(line.to_string()),
+            Some("%VERSION%") => version = Some(line.to_string()),
+            Some("%DESC%") => description = Some(line.to_string()),
+            Some("%URL%") => url = Some(line.to_string()),
+            Some("%LICENSE%") => licenses.push(line.to_string()),
+            _ => {}
+        }
+    }
+
+    Ok(InstalledPackage {
+        name: name.context("Missing %NAME% in desc file")?,
+        version: version.context("Missing %VERSION% in desc file")?,
+        description,
+        url,
+        source: PackageSource::Pacman,
+        licenses,
+    })
+}
