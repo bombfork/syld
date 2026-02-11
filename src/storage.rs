@@ -94,13 +94,17 @@ impl Storage {
     pub fn save_scan(&self, packages: &[InstalledPackage]) -> Result<i64> {
         let now = Utc::now().to_rfc3339();
 
-        self.conn
-            .execute("INSERT INTO scans (timestamp) VALUES (?1)", params![now])
+        let tx = self
+            .conn
+            .unchecked_transaction()
+            .context("Failed to begin transaction")?;
+
+        tx.execute("INSERT INTO scans (timestamp) VALUES (?1)", params![now])
             .context("Failed to insert scan")?;
 
-        let scan_id = self.conn.last_insert_rowid();
+        let scan_id = tx.last_insert_rowid();
 
-        let mut stmt = self.conn.prepare_cached(
+        let mut stmt = tx.prepare_cached(
             "INSERT INTO packages (scan_id, name, version, description, url, source, licenses)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )?;
@@ -118,6 +122,9 @@ impl Storage {
                 licenses_json,
             ])?;
         }
+
+        drop(stmt);
+        tx.commit().context("Failed to commit scan")?;
 
         Ok(scan_id)
     }
