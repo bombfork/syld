@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use syld::config::Config;
 use syld::discover;
 use syld::report::terminal;
+use syld::storage::Storage;
 
 #[derive(Parser)]
 #[command(
@@ -142,6 +143,15 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
     }
 
     eprintln!("\nTotal: {} packages discovered", all_packages.len());
+
+    match Storage::open() {
+        Ok(storage) => match storage.save_scan(&all_packages) {
+            Ok(_) => eprintln!("Scan saved ({} packages)", all_packages.len()),
+            Err(e) => eprintln!("Warning: failed to save scan: {e}"),
+        },
+        Err(e) => eprintln!("Warning: failed to open database: {e}"),
+    }
+
     terminal::sort_packages(&mut all_packages);
     terminal::print_summary(&all_packages, limit);
 
