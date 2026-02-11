@@ -4,6 +4,8 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use indicatif::{ProgressBar, ProgressStyle};
+use rayon::prelude::*;
 
 use super::{Discoverer, InstalledPackage, PackageSource};
 
@@ -26,22 +28,41 @@ impl Discoverer for PacmanDiscoverer {
 
     fn discover(&self) -> Result<Vec<InstalledPackage>> {
         let db_path = Path::new(PACMAN_DB_PATH);
-        let mut packages = Vec::new();
 
-        let entries = fs::read_dir(db_path).context("Failed to read pacman database directory")?;
+        let desc_paths: Vec<_> = fs::read_dir(db_path)
+            .context("Failed to read pacman database directory")?
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let desc_path = entry.path().join("desc");
+                desc_path.is_file().then_some(desc_path)
+            })
+            .collect();
 
-        for entry in entries {
-            let entry = entry?;
-            let desc_path = entry.path().join("desc");
-            if desc_path.is_file() {
-                match parse_desc(&desc_path) {
-                    Ok(pkg) => packages.push(pkg),
+        let pb = ProgressBar::new(desc_paths.len() as u64);
+        pb.set_style(
+            ProgressStyle::default_bar()
+                .template("  {bar:30} {pos}/{len} packages")
+                .unwrap(),
+        );
+
+        let packages: Vec<InstalledPackage> = desc_paths
+            .par_iter()
+            .filter_map(|desc_path| {
+                let result = parse_desc(desc_path);
+                pb.inc(1);
+                match result {
+                    Ok(pkg) => Some(pkg),
                     Err(e) => {
-                        eprintln!("  Warning: failed to parse {}: {}", desc_path.display(), e);
+                        pb.suspend(|| {
+                            eprintln!("  Warning: failed to parse {}: {}", desc_path.display(), e);
+                        });
+                        None
                     }
                 }
-            }
-        }
+            })
+            .collect();
+
+        pb.finish_and_clear();
 
         Ok(packages)
     }
