@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use anyhow::Result;
+use std::env;
+use std::fs;
+use std::process::Command;
+
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use syld::config::Config;
@@ -154,7 +158,50 @@ fn cmd_budget(_config: &Config, _command: &BudgetCommands) -> Result<()> {
     Ok(())
 }
 
-fn cmd_config(_config: &Config, _command: &Option<ConfigCommands>) -> Result<()> {
-    eprintln!("Configuration management not yet implemented.");
+fn cmd_config(config: &Config, command: &Option<ConfigCommands>) -> Result<()> {
+    match command {
+        None | Some(ConfigCommands::Show) => cmd_config_show(config),
+        Some(ConfigCommands::Edit) => cmd_config_edit(),
+    }
+}
+
+fn cmd_config_show(config: &Config) -> Result<()> {
+    let path = Config::config_path()?;
+    eprintln!("# {}", path.display());
+
+    let toml = toml::to_string_pretty(config).context("Failed to serialize config")?;
+    print!("{toml}");
+    Ok(())
+}
+
+fn cmd_config_edit() -> Result<()> {
+    let path = Config::config_path()?;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+    }
+
+    if !path.exists() {
+        let default_toml = toml::to_string_pretty(&Config::default())
+            .context("Failed to serialize default config")?;
+        fs::write(&path, &default_toml)
+            .with_context(|| format!("Failed to write default config to {}", path.display()))?;
+        eprintln!("Created default config at {}", path.display());
+    }
+
+    let editor = env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .unwrap_or_else(|_| "vi".to_string());
+
+    let status = Command::new(&editor)
+        .arg(&path)
+        .status()
+        .with_context(|| format!("Failed to launch editor '{editor}'"))?;
+
+    if !status.success() {
+        anyhow::bail!("Editor '{editor}' exited with {status}");
+    }
+
     Ok(())
 }
