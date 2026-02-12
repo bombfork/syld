@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 
 use syld::config::Config;
 use syld::discover;
-use syld::report::terminal;
+use syld::report::{html, json, terminal};
 use syld::storage::Storage;
 
 #[derive(Parser)]
@@ -158,8 +158,34 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
     Ok(())
 }
 
-fn cmd_report(_config: &Config, _format: &ReportFormat) -> Result<()> {
-    eprintln!("Report generation not yet implemented.");
+fn cmd_report(_config: &Config, format: &ReportFormat) -> Result<()> {
+    let storage = Storage::open().context("Failed to open database")?;
+    let scan = storage
+        .latest_scan()
+        .context("Failed to read latest scan")?;
+
+    let scan = match scan {
+        Some(s) => s,
+        None => {
+            eprintln!("No scan data found. Run `syld scan` first.");
+            return Ok(());
+        }
+    };
+
+    match format {
+        ReportFormat::Terminal => {
+            let mut packages = scan.packages;
+            terminal::sort_packages(&mut packages);
+            terminal::print_summary(&packages, 0);
+        }
+        ReportFormat::Json => {
+            json::print_json(&scan.packages, scan.timestamp)?;
+        }
+        ReportFormat::Html => {
+            html::print_html(&scan.packages, scan.timestamp);
+        }
+    }
+
     Ok(())
 }
 
