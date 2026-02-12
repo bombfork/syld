@@ -390,4 +390,21 @@ mod tests {
         assert_eq!(with_url.len(), 1);
         assert_eq!(with_url[0].packages[0].name, "firefox");
     }
+
+    // --- format_package_terminal tests ---
+
+    #[test]
+    fn format_package_without_source() {
+        let pkg = make_pkg("firefox", PackageSource::Pacman);
+        assert_eq!(format_package_terminal(&pkg, false), "firefox");
+    }
+
+    #[test]
+    fn format_package_with_source() {
+        let pkg = make_pkg("org.gimp.GIMP", PackageSource::Flatpak);
+        assert_eq!(
+            format_package_terminal(&pkg, true),
+            "org.gimp.GIMP [flatpak]"
+        );
+    }
 }
