@@ -28,5 +28,6 @@ enrich = ["dep:reqwest"]
 
 [dev-dependencies]
 assert_cmd = "2.1.2"
+jsonschema = "0.28"
 predicates = "3.1.4"
 tempfile = "3.25.0"

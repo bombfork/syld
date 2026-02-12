@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/bombfork/syld/schemas/report.v1.json",
+  "title": "syld JSON Report",
+  "description": "Schema for the JSON report produced by `syld report --format json`, containing a timestamped inventory of installed packages and their license information.",
+  "type": "object",
+  "required": ["scan_timestamp", "total_packages", "packages"],
+  "additionalProperties": false,
+  "properties": {
+    "scan_timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 / RFC 3339 timestamp of when the scan was performed."
+    },
+    "total_packages": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of packages included in the report."
+    },
+    "packages": {
+      "type": "array",
+      "description": "List of installed packages discovered during the scan.",
+      "items": {
+        "$ref": "#/$defs/package"
+      }
+    }
+  },
+  "$defs": {
+    "package": {
+      "type": "object",
+      "title": "InstalledPackage",
+      "description": "A single installed package with its metadata and license information.",
+      "required": ["name", "version", "source", "licenses"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the installed package."
+        },
+        "version": {
+          "type": "string",
+          "description": "The version string of the installed package."
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "A short description of the package, or null if unavailable."
+        },
+        "url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "The upstream URL of the package, or null if unavailable."
+        },
+        "source": {
+          "type": "string",
+          "enum": ["Pacman", "Apt", "Dnf", "Flatpak", "Snap", "Nix"],
+          "description": "The package manager source that provides this package."
+        },
+        "licenses": {
+          "type": "array",
+          "description": "List of license identifiers associated with the package.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

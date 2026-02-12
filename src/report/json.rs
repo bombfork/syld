@@ -123,4 +123,72 @@ mod tests {
                 .is_empty()
         );
     }
+
+    fn load_schema() -> serde_json::Value {
+        let raw = include_str!("../../schemas/report.v1.json");
+        serde_json::from_str(raw).expect("schema is not valid JSON")
+    }
+
+    #[test]
+    fn json_report_validates_against_schema() {
+        let packages = sample_packages();
+        let timestamp = "2025-01-15T10:30:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        let report = JsonReport {
+            scan_timestamp: timestamp,
+            total_packages: packages.len(),
+            packages,
+        };
+
+        let json = serde_json::to_string_pretty(&report).unwrap();
+        let instance: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let schema = load_schema();
+
+        jsonschema::validate(&schema, &instance)
+            .expect("JSON report should validate against the schema");
+    }
+
+    #[test]
+    fn json_report_empty_validates_against_schema() {
+        let timestamp = "2025-01-15T10:30:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        let report = JsonReport {
+            scan_timestamp: timestamp,
+            total_packages: 0,
+            packages: vec![],
+        };
+
+        let json = serde_json::to_string_pretty(&report).unwrap();
+        let instance: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let schema = load_schema();
+
+        jsonschema::validate(&schema, &instance)
+            .expect("Empty JSON report should validate against the schema");
+    }
+
+    #[test]
+    fn json_report_optional_fields_null_validates() {
+        let packages = vec![InstalledPackage {
+            name: "orphan".to_string(),
+            version: "1.0".to_string(),
+            description: None,
+            url: None,
+            source: PackageSource::Pacman,
+            licenses: vec![],
+        }];
+        let timestamp = "2025-01-15T10:30:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        let report = JsonReport {
+            scan_timestamp: timestamp,
+            total_packages: packages.len(),
+            packages,
+        };
+
+        let json = serde_json::to_string_pretty(&report).unwrap();
+        let instance: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let schema = load_schema();
+
+        jsonschema::validate(&schema, &instance)
+            .expect("Report with null optional fields should validate against the schema");
+    }
 }
