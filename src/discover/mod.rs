@@ -20,6 +20,7 @@
 //!
 //! See [`pacman::PacmanDiscoverer`] for a reference implementation.
 
+mod flatpak;
 mod pacman;
 
 use anyhow::Result;
@@ -143,7 +144,10 @@ pub trait Discoverer {
 /// be included whenever its [`is_available()`](Discoverer::is_available)
 /// check passes.
 pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
-    let candidates: Vec<Box<dyn Discoverer>> = vec![Box::new(pacman::PacmanDiscoverer)];
+    let candidates: Vec<Box<dyn Discoverer>> = vec![
+        Box::new(pacman::PacmanDiscoverer),
+        Box::new(flatpak::FlatpakDiscoverer),
+    ];
 
     candidates
         .into_iter()
