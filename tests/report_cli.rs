@@ -94,6 +94,31 @@ fn report_json_is_valid() {
 }
 
 #[test]
+fn report_json_validates_against_schema() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan(data.path());
+
+    let output = syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let instance: serde_json::Value = serde_json::from_str(&stdout).expect("not valid JSON");
+
+    let schema_path =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("schemas/report.v1.json");
+    let schema_raw = std::fs::read_to_string(&schema_path).expect("failed to read schema file");
+    let schema: serde_json::Value =
+        serde_json::from_str(&schema_raw).expect("schema is not valid JSON");
+
+    jsonschema::validate(&schema, &instance)
+        .expect("CLI JSON output should validate against the schema");
+}
+
+#[test]
 fn report_html_contains_structure() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
