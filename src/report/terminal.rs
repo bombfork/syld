@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use chrono::{DateTime, Utc};
 use comfy_table::{ContentArrangement, Table};
 
 use crate::discover::{InstalledPackage, PackageSource};
@@ -89,7 +90,7 @@ fn format_package_terminal(pkg: &InstalledPackage, show_source: bool) -> String 
 /// Print a summary of discovered packages to the terminal.
 ///
 /// `limit` controls how many project groups to display (0 = all).
-pub fn print_summary(packages: &[InstalledPackage], limit: usize) {
+pub fn print_summary(packages: &[InstalledPackage], limit: usize, timestamp: DateTime<Utc>) {
     if packages.is_empty() {
         println!("No packages found.");
         return;
@@ -128,12 +129,16 @@ pub fn print_summary(packages: &[InstalledPackage], limit: usize) {
 
     let has_multiple_sources = sources.len() > 1;
     let with_url_count = groups.iter().filter(|g| !g.url.is_empty()).count();
+    let without_url_count = packages.iter().filter(|p| p.url.is_none()).count();
 
     println!(
-        "{} packages grouped into {} upstream projects\n",
-        packages.len(),
-        with_url_count
+        "Scan date:              {}",
+        timestamp.format("%Y-%m-%d %H:%M UTC")
     );
+    println!("Total packages:         {}", packages.len());
+    println!("Upstream projects:      {}", with_url_count);
+    println!("Packages without URL:   {}", without_url_count);
+    println!();
 
     let (page, remaining) = paginate(&groups, limit);
 
