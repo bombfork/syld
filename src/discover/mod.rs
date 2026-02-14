@@ -24,6 +24,7 @@ mod apt;
 mod dnf;
 mod flatpak;
 mod mise;
+mod nix;
 mod pacman;
 mod snap;
 
@@ -156,6 +157,7 @@ pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
         Box::new(pacman::PacmanDiscoverer),
         Box::new(flatpak::FlatpakDiscoverer),
         Box::new(snap::SnapDiscoverer),
+        Box::new(nix::NixDiscoverer),
         Box::new(mise::MiseDiscoverer),
     ];
 
