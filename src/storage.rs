@@ -11,9 +11,10 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, params};
 
+use crate::budget::DonationRecord;
 use crate::config::{BudgetConfig, Cadence, Config};
 use crate::discover::{InstalledPackage, PackageSource};
-use crate::project::UpstreamProject;
+use crate::project::{FundingChannel, UpstreamProject};
 
 /// A saved scan with its metadata and packages.
 pub struct ScanRecord {
@@ -83,6 +84,31 @@ impl Storage {
                 amount   REAL,
                 currency TEXT    NOT NULL DEFAULT 'USD',
                 cadence  TEXT    NOT NULL DEFAULT 'monthly'
+            );
+
+            CREATE TABLE IF NOT EXISTS projects (
+                url               TEXT PRIMARY KEY,
+                name              TEXT NOT NULL,
+                repo_url          TEXT,
+                homepage          TEXT,
+                licenses          TEXT NOT NULL DEFAULT '[]',
+                funding           TEXT NOT NULL DEFAULT '[]',
+                bug_tracker       TEXT,
+                contributing_url  TEXT,
+                is_open_source    INTEGER,
+                documentation_url TEXT,
+                good_first_issues_url TEXT,
+                stars             INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS donation_history (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_url TEXT    NOT NULL,
+                amount      REAL   NOT NULL,
+                currency    TEXT   NOT NULL DEFAULT 'USD',
+                donated_at  TEXT   NOT NULL,
+                via         TEXT,
+                notes       TEXT
             );
             ",
             )
@@ -284,6 +310,242 @@ impl Storage {
             cadence,
         }))
     }
+
+    // --- Project CRUD ---
+
+    /// Save (upsert) an upstream project, keyed by its repo or homepage URL.
+    ///
+    /// The `url` is derived from `repo_url` falling back to `homepage`.
+    /// Returns an error if neither is set.
+    pub fn save_project(&self, project: &UpstreamProject) -> Result<()> {
+        let url = project
+            .repo_url
+            .as_deref()
+            .or(project.homepage.as_deref())
+            .context("Project has no repo_url or homepage to use as key")?;
+
+        let licenses_json =
+            serde_json::to_string(&project.licenses).context("Failed to serialize licenses")?;
+        let funding_json =
+            serde_json::to_string(&project.funding).context("Failed to serialize funding")?;
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO projects
+             (url, name, repo_url, homepage, licenses, funding, bug_tracker,
+              contributing_url, is_open_source, documentation_url,
+              good_first_issues_url, stars)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                url,
+                project.name,
+                project.repo_url,
+                project.homepage,
+                licenses_json,
+                funding_json,
+                project.bug_tracker,
+                project.contributing_url,
+                project.is_open_source,
+                project.documentation_url,
+                project.good_first_issues_url,
+                project.stars.map(|s| s as i64),
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    /// Get a project by its URL key.
+    pub fn get_project(&self, url: &str) -> Result<Option<UpstreamProject>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, repo_url, homepage, licenses, funding, bug_tracker,
+                    contributing_url, is_open_source, documentation_url,
+                    good_first_issues_url, stars
+             FROM projects WHERE url = ?1",
+        )?;
+
+        let row = stmt.query_row(params![url], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, Option<String>>(6)?,
+                row.get::<_, Option<bool>>(7)?,
+                row.get::<_, Option<String>>(8)?,
+                row.get::<_, Option<String>>(9)?,
+                row.get::<_, Option<i64>>(10)?,
+            ))
+        });
+
+        match row {
+            Ok((
+                name,
+                repo_url,
+                homepage,
+                licenses_json,
+                funding_json,
+                bug_tracker,
+                contributing_url,
+                is_open_source,
+                documentation_url,
+                good_first_issues_url,
+                stars,
+            )) => {
+                let licenses: Vec<String> = serde_json::from_str(&licenses_json)
+                    .context("Failed to deserialize licenses")?;
+                let funding: Vec<FundingChannel> =
+                    serde_json::from_str(&funding_json).context("Failed to deserialize funding")?;
+                Ok(Some(UpstreamProject {
+                    name,
+                    repo_url,
+                    homepage,
+                    licenses,
+                    funding,
+                    bug_tracker,
+                    contributing_url,
+                    is_open_source,
+                    documentation_url,
+                    good_first_issues_url,
+                    stars: stars.map(|s| s as u64),
+                }))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e).context("Failed to query project"),
+        }
+    }
+
+    /// Get all saved projects.
+    pub fn all_projects(&self) -> Result<Vec<UpstreamProject>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, repo_url, homepage, licenses, funding, bug_tracker,
+                    contributing_url, is_open_source, documentation_url,
+                    good_first_issues_url, stars
+             FROM projects ORDER BY name",
+        )?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<bool>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<i64>>(10)?,
+                ))
+            })?
+            .map(|r| {
+                let (
+                    name,
+                    repo_url,
+                    homepage,
+                    licenses_json,
+                    funding_json,
+                    bug_tracker,
+                    contributing_url,
+                    is_open_source,
+                    documentation_url,
+                    good_first_issues_url,
+                    stars,
+                ) = r?;
+                let licenses: Vec<String> = serde_json::from_str(&licenses_json)
+                    .context("Failed to deserialize licenses")?;
+                let funding: Vec<FundingChannel> =
+                    serde_json::from_str(&funding_json).context("Failed to deserialize funding")?;
+                Ok(UpstreamProject {
+                    name,
+                    repo_url,
+                    homepage,
+                    licenses,
+                    funding,
+                    bug_tracker,
+                    contributing_url,
+                    is_open_source,
+                    documentation_url,
+                    good_first_issues_url,
+                    stars: stars.map(|s| s as u64),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(rows)
+    }
+
+    // --- Donation history ---
+
+    /// Record a donation, returning the row ID.
+    pub fn save_donation(
+        &self,
+        project_url: &str,
+        amount: f64,
+        currency: &str,
+        donated_at: DateTime<Utc>,
+        via: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO donation_history (project_url, amount, currency, donated_at, via, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                project_url,
+                amount,
+                currency,
+                donated_at.to_rfc3339(),
+                via,
+                notes,
+            ],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Get all donations since a given timestamp.
+    pub fn donations_since(&self, since: DateTime<Utc>) -> Result<Vec<DonationRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, project_url, amount, currency, donated_at, via, notes
+             FROM donation_history
+             WHERE donated_at >= ?1
+             ORDER BY donated_at",
+        )?;
+
+        let rows = stmt
+            .query_map(params![since.to_rfc3339()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, f64>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })?
+            .map(|r| {
+                let (id, project_url, amount, currency, donated_at_str, via, notes) = r?;
+                let donated_at: DateTime<Utc> = donated_at_str
+                    .parse()
+                    .with_context(|| format!("Failed to parse donated_at: {donated_at_str}"))?;
+                Ok(DonationRecord {
+                    id,
+                    project_url,
+                    amount,
+                    currency,
+                    donated_at,
+                    via,
+                    notes,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(rows)
+    }
 }
 
 /// Parse a package source string back into the enum.
@@ -352,6 +614,8 @@ mod tests {
         assert_eq!(count("packages"), 0);
         assert_eq!(count("enrichment_cache"), 0);
         assert_eq!(count("budget"), 0);
+        assert_eq!(count("projects"), 0);
+        assert_eq!(count("donation_history"), 0);
     }
 
     #[test]
@@ -466,6 +730,10 @@ mod tests {
             }],
             bug_tracker: Some("https://bugzilla.mozilla.org".to_string()),
             contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
         };
 
         storage
@@ -508,6 +776,10 @@ mod tests {
             funding: vec![],
             bug_tracker: None,
             contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
         };
         storage
             .save_enrichment("https://example.org", &project1)
@@ -521,6 +793,10 @@ mod tests {
             funding: vec![],
             bug_tracker: None,
             contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
         };
         storage
             .save_enrichment("https://example.org", &project2)
@@ -647,5 +923,256 @@ mod tests {
         let storage2 = Storage::open_path(&db_path).expect("reopen tempfile db");
         let scan2 = storage2.latest_scan().unwrap().unwrap();
         assert_eq!(scan2.packages.len(), 2);
+    }
+
+    // --- Project CRUD tests ---
+
+    fn sample_project() -> UpstreamProject {
+        UpstreamProject {
+            name: "Firefox".to_string(),
+            repo_url: Some("https://github.com/nicotine-plus/nicotine-plus".to_string()),
+            homepage: Some("https://mozilla.org".to_string()),
+            licenses: vec!["MPL-2.0".to_string()],
+            funding: vec![FundingChannel {
+                platform: "Open Collective".to_string(),
+                url: "https://opencollective.com/firefox".to_string(),
+            }],
+            bug_tracker: Some("https://bugzilla.mozilla.org".to_string()),
+            contributing_url: Some(
+                "https://firefox-source-docs.mozilla.org/contributing/".to_string(),
+            ),
+            is_open_source: Some(true),
+            documentation_url: Some("https://firefox-source-docs.mozilla.org".to_string()),
+            good_first_issues_url: Some("https://codetribute.mozilla.org".to_string()),
+            stars: Some(1234),
+        }
+    }
+
+    #[test]
+    fn save_and_get_project() {
+        let storage = open_memory();
+        let project = sample_project();
+
+        storage.save_project(&project).expect("save_project failed");
+
+        // Key is repo_url
+        let loaded = storage
+            .get_project("https://github.com/nicotine-plus/nicotine-plus")
+            .expect("get_project failed")
+            .expect("should have project");
+
+        assert_eq!(loaded.name, "Firefox");
+        assert_eq!(loaded.repo_url, project.repo_url);
+        assert_eq!(loaded.homepage, project.homepage);
+        assert_eq!(loaded.licenses, vec!["MPL-2.0".to_string()]);
+        assert_eq!(loaded.funding.len(), 1);
+        assert_eq!(loaded.funding[0].platform, "Open Collective");
+        assert_eq!(loaded.bug_tracker, project.bug_tracker);
+        assert_eq!(loaded.contributing_url, project.contributing_url);
+        assert_eq!(loaded.is_open_source, Some(true));
+        assert_eq!(loaded.documentation_url, project.documentation_url);
+        assert_eq!(loaded.good_first_issues_url, project.good_first_issues_url);
+        assert_eq!(loaded.stars, Some(1234));
+    }
+
+    #[test]
+    fn get_project_missing() {
+        let storage = open_memory();
+        let result = storage
+            .get_project("https://nonexistent.org")
+            .expect("get_project failed");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn save_project_uses_homepage_as_fallback_key() {
+        let storage = open_memory();
+        let project = UpstreamProject {
+            name: "HomepageOnly".to_string(),
+            repo_url: None,
+            homepage: Some("https://example.org".to_string()),
+            licenses: vec![],
+            funding: vec![],
+            bug_tracker: None,
+            contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
+        };
+
+        storage.save_project(&project).unwrap();
+        let loaded = storage.get_project("https://example.org").unwrap().unwrap();
+        assert_eq!(loaded.name, "HomepageOnly");
+    }
+
+    #[test]
+    fn save_project_no_url_errors() {
+        let storage = open_memory();
+        let project = UpstreamProject {
+            name: "NoUrl".to_string(),
+            repo_url: None,
+            homepage: None,
+            licenses: vec![],
+            funding: vec![],
+            bug_tracker: None,
+            contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
+        };
+
+        assert!(storage.save_project(&project).is_err());
+    }
+
+    #[test]
+    fn all_projects_returns_sorted() {
+        let storage = open_memory();
+
+        let mut p1 = sample_project();
+        p1.name = "Zebra".to_string();
+        p1.repo_url = Some("https://github.com/zebra".to_string());
+        storage.save_project(&p1).unwrap();
+
+        let mut p2 = sample_project();
+        p2.name = "Alpha".to_string();
+        p2.repo_url = Some("https://github.com/alpha".to_string());
+        storage.save_project(&p2).unwrap();
+
+        let all = storage.all_projects().unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].name, "Alpha");
+        assert_eq!(all[1].name, "Zebra");
+    }
+
+    #[test]
+    fn all_projects_empty() {
+        let storage = open_memory();
+        let all = storage.all_projects().unwrap();
+        assert!(all.is_empty());
+    }
+
+    #[test]
+    fn project_upsert() {
+        let storage = open_memory();
+        let mut project = sample_project();
+        storage.save_project(&project).unwrap();
+
+        project.stars = Some(9999);
+        storage.save_project(&project).unwrap();
+
+        let loaded = storage
+            .get_project(project.repo_url.as_deref().unwrap())
+            .unwrap()
+            .unwrap();
+        assert_eq!(loaded.stars, Some(9999));
+
+        // Should still be one project, not two
+        let all = storage.all_projects().unwrap();
+        assert_eq!(all.len(), 1);
+    }
+
+    // --- Donation history tests ---
+
+    #[test]
+    fn save_and_query_donations() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        let id = storage
+            .save_donation(
+                "https://github.com/example",
+                10.0,
+                "USD",
+                now,
+                Some("GitHub Sponsors"),
+                Some("Monthly donation"),
+            )
+            .expect("save_donation failed");
+
+        assert_eq!(id, 1);
+
+        let donations = storage
+            .donations_since(now - Duration::hours(1))
+            .expect("donations_since failed");
+
+        assert_eq!(donations.len(), 1);
+        assert_eq!(donations[0].id, 1);
+        assert_eq!(donations[0].project_url, "https://github.com/example");
+        assert_eq!(donations[0].amount, 10.0);
+        assert_eq!(donations[0].currency, "USD");
+        assert_eq!(donations[0].via, Some("GitHub Sponsors".to_string()));
+        assert_eq!(donations[0].notes, Some("Monthly donation".to_string()));
+    }
+
+    #[test]
+    fn donations_since_filters_by_date() {
+        let storage = open_memory();
+        let old = Utc::now() - Duration::days(30);
+        let recent = Utc::now() - Duration::hours(1);
+
+        storage
+            .save_donation("https://example.org/old", 5.0, "USD", old, None, None)
+            .unwrap();
+        storage
+            .save_donation("https://example.org/new", 15.0, "EUR", recent, None, None)
+            .unwrap();
+
+        // Query since 7 days ago — should only get the recent one
+        let donations = storage
+            .donations_since(Utc::now() - Duration::days(7))
+            .unwrap();
+
+        assert_eq!(donations.len(), 1);
+        assert_eq!(donations[0].project_url, "https://example.org/new");
+        assert_eq!(donations[0].amount, 15.0);
+        assert_eq!(donations[0].currency, "EUR");
+    }
+
+    #[test]
+    fn donations_since_empty() {
+        let storage = open_memory();
+        let donations = storage
+            .donations_since(Utc::now() - Duration::days(30))
+            .unwrap();
+        assert!(donations.is_empty());
+    }
+
+    // --- Backward-compatible deserialization test ---
+
+    #[test]
+    fn enrichment_cache_backward_compatible() {
+        let storage = open_memory();
+
+        // Simulate an old cache entry missing the new fields
+        let old_json = r#"{
+            "name": "OldProject",
+            "repo_url": null,
+            "homepage": null,
+            "licenses": [],
+            "funding": [],
+            "bug_tracker": null,
+            "contributing_url": null
+        }"#;
+        let now = Utc::now().to_rfc3339();
+        storage
+            .conn
+            .execute(
+                "INSERT INTO enrichment_cache (project_url, data, cached_at) VALUES (?1, ?2, ?3)",
+                params!["https://old.example.org", old_json, now],
+            )
+            .unwrap();
+
+        let loaded = storage
+            .get_enrichment("https://old.example.org")
+            .unwrap()
+            .expect("should deserialize old entry");
+
+        assert_eq!(loaded.name, "OldProject");
+        assert!(loaded.is_open_source.is_none());
+        assert!(loaded.documentation_url.is_none());
+        assert!(loaded.good_first_issues_url.is_none());
+        assert!(loaded.stars.is_none());
     }
 }

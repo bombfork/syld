@@ -67,6 +67,25 @@
           "items": {
             "type": "string"
           }
+        },
+        "is_open_source": {
+          "type": ["boolean", "null"],
+          "description": "Whether the project is open source (resolved from license analysis). Null if unknown."
+        },
+        "documentation_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "URL to the project's documentation, or null if unavailable."
+        },
+        "good_first_issues_url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "URL to beginner-friendly issues for this project, or null if unavailable."
+        },
+        "stars": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Star/favorite count (e.g. GitHub stars), or null if unavailable."
         }
       }
     },
@@ -96,7 +115,7 @@
         },
         "source": {
           "type": "string",
-          "enum": ["Pacman", "Apt", "Dnf", "Flatpak", "Snap", "Nix", "Mise"],
+          "enum": ["Pacman", "Apt", "Dnf", "Flatpak", "Snap", "Nix", "Mise", "Brew", "Docker", "Podman"],
           "description": "The package manager source that provides this package."
         },
         "licenses": {
