@@ -27,7 +27,9 @@ mod docker;
 mod flatpak;
 mod mise;
 mod nix;
+mod oci;
 mod pacman;
+mod podman;
 mod snap;
 
 use anyhow::Result;
@@ -85,6 +87,7 @@ pub enum PackageSource {
     Nix,
     Mise,
     Docker,
+    Podman,
 }
 
 impl std::fmt::Display for PackageSource {
@@ -99,6 +102,7 @@ impl std::fmt::Display for PackageSource {
             PackageSource::Nix => write!(f, "nix"),
             PackageSource::Mise => write!(f, "mise"),
             PackageSource::Docker => write!(f, "docker"),
+            PackageSource::Podman => write!(f, "podman"),
         }
     }
 }
@@ -167,6 +171,7 @@ pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
         Box::new(nix::NixDiscoverer),
         Box::new(mise::MiseDiscoverer),
         Box::new(docker::DockerDiscoverer),
+        Box::new(podman::PodmanDiscoverer),
     ];
 
     candidates

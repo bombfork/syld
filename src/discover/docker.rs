@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Deserialize;
 
+use super::oci;
 use super::{Discoverer, InstalledPackage, PackageSource};
 
 /// Discovers container images available in the local Docker daemon.
@@ -58,22 +59,16 @@ impl Discoverer for DockerDiscoverer {
 
         let packages: Vec<InstalledPackage> = images
             .iter()
-            .filter_map(|image| {
+            .map(|image| {
                 let labels = fetch_image_labels(&image.id);
-                let result = build_package(image, &labels);
+                let pkg = oci::build_package_from_labels(
+                    &image.repository,
+                    &image.tag,
+                    &labels,
+                    PackageSource::Docker,
+                );
                 pb.inc(1);
-                match result {
-                    Ok(pkg) => Some(pkg),
-                    Err(e) => {
-                        pb.suspend(|| {
-                            eprintln!(
-                                "  Warning: failed to process docker image {}: {e}",
-                                image.id
-                            );
-                        });
-                        None
-                    }
-                }
+                pkg
             })
             .collect();
 
@@ -139,60 +134,7 @@ fn fetch_image_labels(image_id: &str) -> HashMap<String, String> {
         Err(_) => return HashMap::new(),
     };
 
-    parse_labels(&stdout).unwrap_or_default()
-}
-
-/// Parse the JSON output of `docker inspect --format '{{json .Config.Labels}}'`.
-///
-/// The output is a single JSON object mapping label keys to values, or the
-/// literal string `null` when no labels are set.
-fn parse_labels(output: &str) -> Result<HashMap<String, String>> {
-    let trimmed = output.trim();
-
-    if trimmed.is_empty() || trimmed == "null" {
-        return Ok(HashMap::new());
-    }
-
-    let labels: HashMap<String, String> =
-        serde_json::from_str(trimmed).context("Failed to parse docker inspect labels JSON")?;
-
-    Ok(labels)
-}
-
-/// Build an [`InstalledPackage`] from a Docker image entry and its OCI labels.
-fn build_package(
-    image: &DockerImage,
-    labels: &HashMap<String, String>,
-) -> Result<InstalledPackage> {
-    let name = image.repository.clone();
-
-    let version = if image.tag == "<none>" {
-        "unknown".to_string()
-    } else {
-        image.tag.clone()
-    };
-
-    // Extract URL: prefer source (e.g. GitHub repo), fall back to generic URL
-    let url = labels
-        .get("org.opencontainers.image.source")
-        .or_else(|| labels.get("org.opencontainers.image.url"))
-        .cloned();
-
-    let description = labels.get("org.opencontainers.image.description").cloned();
-
-    let licenses = labels
-        .get("org.opencontainers.image.licenses")
-        .map(|l| vec![l.clone()])
-        .unwrap_or_default();
-
-    Ok(InstalledPackage {
-        name,
-        version,
-        description,
-        url,
-        source: PackageSource::Docker,
-        licenses,
-    })
+    oci::parse_labels(&stdout).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -237,149 +179,6 @@ mod tests {
 "#;
         let images = parse_image_list(output).unwrap();
         assert_eq!(images.len(), 1);
-    }
-
-    #[test]
-    fn parse_labels_with_oci_metadata() {
-        let output = r#"{"org.opencontainers.image.source":"https://github.com/nginx/nginx","org.opencontainers.image.url":"https://nginx.org","org.opencontainers.image.description":"Official nginx image","org.opencontainers.image.licenses":"BSD-2-Clause","maintainer":"NGINX Docker Maintainers"}"#;
-
-        let labels = parse_labels(output).unwrap();
-        assert_eq!(
-            labels.get("org.opencontainers.image.source").unwrap(),
-            "https://github.com/nginx/nginx"
-        );
-        assert_eq!(
-            labels.get("org.opencontainers.image.url").unwrap(),
-            "https://nginx.org"
-        );
-        assert_eq!(
-            labels.get("org.opencontainers.image.description").unwrap(),
-            "Official nginx image"
-        );
-        assert_eq!(
-            labels.get("org.opencontainers.image.licenses").unwrap(),
-            "BSD-2-Clause"
-        );
-    }
-
-    #[test]
-    fn parse_labels_null() {
-        let labels = parse_labels("null\n").unwrap();
-        assert!(labels.is_empty());
-    }
-
-    #[test]
-    fn parse_labels_empty() {
-        let labels = parse_labels("").unwrap();
-        assert!(labels.is_empty());
-    }
-
-    #[test]
-    fn parse_labels_empty_object() {
-        let labels = parse_labels("{}").unwrap();
-        assert!(labels.is_empty());
-    }
-
-    #[test]
-    fn build_package_full_metadata() {
-        let image = DockerImage {
-            repository: "nginx".to_string(),
-            tag: "1.25.4".to_string(),
-            id: "abc123".to_string(),
-        };
-
-        let mut labels = HashMap::new();
-        labels.insert(
-            "org.opencontainers.image.source".to_string(),
-            "https://github.com/nginx/nginx".to_string(),
-        );
-        labels.insert(
-            "org.opencontainers.image.description".to_string(),
-            "Official nginx image".to_string(),
-        );
-        labels.insert(
-            "org.opencontainers.image.licenses".to_string(),
-            "BSD-2-Clause".to_string(),
-        );
-
-        let pkg = build_package(&image, &labels).unwrap();
-        assert_eq!(pkg.name, "nginx");
-        assert_eq!(pkg.version, "1.25.4");
-        assert_eq!(pkg.description.as_deref(), Some("Official nginx image"));
-        assert_eq!(pkg.url.as_deref(), Some("https://github.com/nginx/nginx"));
-        assert_eq!(pkg.source, PackageSource::Docker);
-        assert_eq!(pkg.licenses, vec!["BSD-2-Clause"]);
-    }
-
-    #[test]
-    fn build_package_no_labels() {
-        let image = DockerImage {
-            repository: "myapp".to_string(),
-            tag: "dev".to_string(),
-            id: "xyz789".to_string(),
-        };
-
-        let labels = HashMap::new();
-        let pkg = build_package(&image, &labels).unwrap();
-        assert_eq!(pkg.name, "myapp");
-        assert_eq!(pkg.version, "dev");
-        assert!(pkg.description.is_none());
-        assert!(pkg.url.is_none());
-        assert_eq!(pkg.source, PackageSource::Docker);
-        assert!(pkg.licenses.is_empty());
-    }
-
-    #[test]
-    fn build_package_none_tag_becomes_unknown() {
-        let image = DockerImage {
-            repository: "myapp".to_string(),
-            tag: "<none>".to_string(),
-            id: "xyz789".to_string(),
-        };
-
-        let labels = HashMap::new();
-        let pkg = build_package(&image, &labels).unwrap();
-        assert_eq!(pkg.version, "unknown");
-    }
-
-    #[test]
-    fn build_package_url_prefers_source_over_url() {
-        let image = DockerImage {
-            repository: "nginx".to_string(),
-            tag: "latest".to_string(),
-            id: "abc123".to_string(),
-        };
-
-        let mut labels = HashMap::new();
-        labels.insert(
-            "org.opencontainers.image.source".to_string(),
-            "https://github.com/nginx/nginx".to_string(),
-        );
-        labels.insert(
-            "org.opencontainers.image.url".to_string(),
-            "https://nginx.org".to_string(),
-        );
-
-        let pkg = build_package(&image, &labels).unwrap();
-        assert_eq!(pkg.url.as_deref(), Some("https://github.com/nginx/nginx"));
-    }
-
-    #[test]
-    fn build_package_url_falls_back_to_url_label() {
-        let image = DockerImage {
-            repository: "nginx".to_string(),
-            tag: "latest".to_string(),
-            id: "abc123".to_string(),
-        };
-
-        let mut labels = HashMap::new();
-        labels.insert(
-            "org.opencontainers.image.url".to_string(),
-            "https://nginx.org".to_string(),
-        );
-
-        let pkg = build_package(&image, &labels).unwrap();
-        assert_eq!(pkg.url.as_deref(), Some("https://nginx.org"));
     }
 
     #[test]
