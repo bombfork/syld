@@ -17,11 +17,31 @@ fn syld_with_db(config_home: &Path, data_home: &Path) -> Command {
 }
 
 fn seed_scan(data_home: &Path) {
+    seed_scan_packages(data_home, &single_source_packages());
+}
+
+fn seed_multi_source_scan(data_home: &Path) {
+    let mut packages = single_source_packages();
+    packages.push(InstalledPackage {
+        name: "org.gimp.GIMP".to_string(),
+        version: "2.10.38".to_string(),
+        description: Some("GNU Image Manipulation Program".to_string()),
+        url: None,
+        source: PackageSource::Flatpak,
+        licenses: vec![],
+    });
+    seed_scan_packages(data_home, &packages);
+}
+
+fn seed_scan_packages(data_home: &Path, packages: &[InstalledPackage]) {
     let db_dir = data_home.join("syld");
     std::fs::create_dir_all(&db_dir).unwrap();
     let storage = Storage::open_path(&db_dir.join("syld.db")).unwrap();
+    storage.save_scan(packages).unwrap();
+}
 
-    let packages = vec![
+fn single_source_packages() -> Vec<InstalledPackage> {
+    vec![
         InstalledPackage {
             name: "firefox".to_string(),
             version: "128.0".to_string(),
@@ -46,8 +66,7 @@ fn seed_scan(data_home: &Path) {
             source: PackageSource::Pacman,
             licenses: vec![],
         },
-    ];
-    storage.save_scan(&packages).unwrap();
+    ]
 }
 
 #[test]
@@ -132,4 +151,111 @@ fn report_html_contains_structure() {
         .stdout(predicate::str::contains("<title>syld report</title>"))
         .stdout(predicate::str::contains("firefox"))
         .stdout(predicate::str::contains("kernel.org"));
+}
+
+#[test]
+fn report_terminal_shows_no_url_packages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_multi_source_scan(data.path());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("(no project URL)"))
+        .stdout(predicate::str::contains("org.gimp.GIMP"));
+}
+
+#[test]
+fn report_terminal_shows_source_tags_with_multiple_sources() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_multi_source_scan(data.path());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[pacman]"))
+        .stdout(predicate::str::contains("[flatpak]"));
+}
+
+#[test]
+fn report_terminal_hides_source_tags_with_single_source() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan(data.path());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[pacman]").not());
+}
+
+#[test]
+fn report_html_shows_no_url_packages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_multi_source_scan(data.path());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "html"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("no project URL"))
+        .stdout(predicate::str::contains("org.gimp.GIMP"));
+}
+
+#[test]
+fn report_html_shows_source_badges_with_multiple_sources() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_multi_source_scan(data.path());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "html"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#"class="badge">"#))
+        .stdout(predicate::str::contains("pacman"))
+        .stdout(predicate::str::contains("flatpak"));
+}
+
+#[test]
+fn report_html_hides_badges_with_single_source() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan(data.path());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "html"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#"<span class="badge">"#).not());
+}
+
+#[test]
+fn report_json_includes_source_per_package() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_multi_source_scan(data.path());
+
+    let output = syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("not valid JSON");
+
+    let packages = parsed["packages"].as_array().unwrap();
+    let sources: Vec<&str> = packages
+        .iter()
+        .map(|p| p["source"].as_str().unwrap())
+        .collect();
+    assert!(sources.contains(&"Pacman"));
+    assert!(sources.contains(&"Flatpak"));
 }

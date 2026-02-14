@@ -15,6 +15,22 @@ fn escape_html(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Format a package name with an optional source badge.
+///
+/// Badges are only shown when the report contains packages from multiple
+/// sources, since a single-source report would just add visual noise.
+fn format_package_html(pkg: &InstalledPackage, show_badge: bool) -> String {
+    if show_badge {
+        format!(
+            "{}<span class=\"badge\">{}</span>",
+            escape_html(&pkg.name),
+            escape_html(&pkg.source.to_string()),
+        )
+    } else {
+        escape_html(&pkg.name)
+    }
+}
+
 /// Generate an HTML report and print it to stdout.
 pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
     let mut sorted = packages.to_vec();
@@ -27,8 +43,9 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
     let mut sources: Vec<_> = by_source.iter().collect();
     sources.sort_by_key(|(s, _)| **s);
 
+    let has_multiple_sources = sources.len() > 1;
+
     let groups = group_by_project(&sorted);
-    let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
 
     let mut html = String::new();
 
@@ -48,6 +65,7 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
     html.push_str("th { background: #f5f5f5; }\n");
     html.push_str("tr:hover { background: #fafafa; }\n");
     html.push_str(".meta { color: #666; font-size: 0.9rem; }\n");
+    html.push_str(".badge { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 3px; background: #e8e8e8; color: #555; margin-left: 0.3rem; vertical-align: middle; }\n");
     html.push_str("</style>\n");
     html.push_str("</head>\n<body>\n");
 
@@ -74,24 +92,30 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
     html.push_str("</table>\n");
 
     // Projects
-    if !with_url.is_empty() {
+    if !groups.is_empty() {
+        let with_url_count = groups.iter().filter(|g| !g.url.is_empty()).count();
         html.push_str("<h2>Upstream projects</h2>\n");
         html.push_str(&format!(
             "<p class=\"meta\">{} packages grouped into {} projects</p>\n",
             sorted.len(),
-            with_url.len()
+            with_url_count
         ));
         html.push_str("<table>\n<tr><th>Project</th><th>Packages</th></tr>\n");
 
-        for group in &with_url {
+        for group in &groups {
             let pkg_names: Vec<_> = group
                 .packages
                 .iter()
-                .map(|p| escape_html(&p.name))
+                .map(|p| format_package_html(p, has_multiple_sources))
                 .collect();
+            let url_cell = if group.url.is_empty() {
+                "<em>no project URL</em>".to_string()
+            } else {
+                escape_html(&group.url)
+            };
             html.push_str(&format!(
                 "<tr><td>{}</td><td>{}</td></tr>\n",
-                escape_html(&group.url),
+                url_cell,
                 pkg_names.join(", "),
             ));
         }
@@ -142,14 +166,12 @@ mod tests {
         let packages = sample_packages();
         let timestamp = "2025-01-15T10:30:00Z".parse::<DateTime<Utc>>().unwrap();
 
-        // Capture stdout by building the same HTML string
         let mut sorted = packages.to_vec();
         sort_packages(&mut sorted);
 
         let groups = group_by_project(&sorted);
         let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
 
-        // Just verify the building blocks work
         assert_eq!(sorted.len(), 2);
         assert_eq!(with_url.len(), 2);
         assert!(
@@ -167,5 +189,49 @@ mod tests {
         let groups = group_by_project(&sorted);
         let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
         assert!(with_url.is_empty());
+    }
+
+    #[test]
+    fn format_package_without_badge() {
+        let pkg = InstalledPackage {
+            name: "firefox".to_string(),
+            version: "128.0".to_string(),
+            description: None,
+            url: None,
+            source: PackageSource::Pacman,
+            licenses: vec![],
+        };
+        assert_eq!(format_package_html(&pkg, false), "firefox");
+    }
+
+    #[test]
+    fn format_package_with_badge() {
+        let pkg = InstalledPackage {
+            name: "firefox".to_string(),
+            version: "128.0".to_string(),
+            description: None,
+            url: None,
+            source: PackageSource::Flatpak,
+            licenses: vec![],
+        };
+        let html = format_package_html(&pkg, true);
+        assert!(html.contains("firefox"));
+        assert!(html.contains("flatpak"));
+        assert!(html.contains("badge"));
+    }
+
+    #[test]
+    fn format_package_escapes_name() {
+        let pkg = InstalledPackage {
+            name: "<script>".to_string(),
+            version: "1.0".to_string(),
+            description: None,
+            url: None,
+            source: PackageSource::Pacman,
+            licenses: vec![],
+        };
+        let html = format_package_html(&pkg, true);
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(!html.contains("<script>"));
     }
 }
