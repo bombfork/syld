@@ -295,6 +295,7 @@ fn parse_package_source(s: &str) -> Result<PackageSource> {
         "flatpak" => Ok(PackageSource::Flatpak),
         "snap" => Ok(PackageSource::Snap),
         "nix" => Ok(PackageSource::Nix),
+        "mise" => Ok(PackageSource::Mise),
         other => anyhow::bail!("Unknown package source: {other}"),
     }
 }
@@ -608,6 +609,7 @@ mod tests {
             PackageSource::Flatpak,
             PackageSource::Snap,
             PackageSource::Nix,
+            PackageSource::Mise,
         ];
 
         for source in sources {

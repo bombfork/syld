@@ -52,7 +52,7 @@
         },
         "source": {
           "type": "string",
-          "enum": ["Pacman", "Apt", "Dnf", "Flatpak", "Snap", "Nix"],
+          "enum": ["Pacman", "Apt", "Dnf", "Flatpak", "Snap", "Nix", "Mise"],
           "description": "The package manager source that provides this package."
         },
         "licenses": {
