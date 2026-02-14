@@ -2,6 +2,7 @@
 
 pub mod budget;
 pub mod config;
+pub mod contribute;
 pub mod discover;
 pub mod enrich;
 pub mod project;
