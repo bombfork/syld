@@ -20,6 +20,7 @@
 //!
 //! See [`pacman::PacmanDiscoverer`] for a reference implementation.
 
+mod apt;
 mod flatpak;
 mod mise;
 mod pacman;
@@ -148,6 +149,7 @@ pub trait Discoverer {
 /// check passes.
 pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
     let candidates: Vec<Box<dyn Discoverer>> = vec![
+        Box::new(apt::AptDiscoverer),
         Box::new(pacman::PacmanDiscoverer),
         Box::new(flatpak::FlatpakDiscoverer),
         Box::new(mise::MiseDiscoverer),
