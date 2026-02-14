@@ -25,6 +25,7 @@ mod dnf;
 mod flatpak;
 mod mise;
 mod pacman;
+mod snap;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -154,6 +155,7 @@ pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
         Box::new(dnf::DnfDiscoverer),
         Box::new(pacman::PacmanDiscoverer),
         Box::new(flatpak::FlatpakDiscoverer),
+        Box::new(snap::SnapDiscoverer),
         Box::new(mise::MiseDiscoverer),
     ];
 
