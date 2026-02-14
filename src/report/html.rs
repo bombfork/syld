@@ -120,6 +120,8 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
                 .collect();
             let url_cell = if group.url.is_empty() {
                 "<em>no project URL</em>".to_string()
+            } else if !group.project_urls.is_empty() {
+                format!("{}/*", escape_html(&group.url))
             } else {
                 escape_html(&group.url)
             };

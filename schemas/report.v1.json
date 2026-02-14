@@ -4,7 +4,7 @@
   "title": "syld JSON Report",
   "description": "Schema for the JSON report produced by `syld report --format json`, containing a timestamped inventory of installed packages and their license information.",
   "type": "object",
-  "required": ["scan_timestamp", "total_packages", "total_projects", "packages_without_url", "packages"],
+  "required": ["scan_timestamp", "total_packages", "total_projects", "packages_without_url", "projects", "packages"],
   "additionalProperties": false,
   "properties": {
     "scan_timestamp": {
@@ -20,12 +20,19 @@
     "total_projects": {
       "type": "integer",
       "minimum": 0,
-      "description": "Number of distinct upstream projects identified (packages with a project URL)."
+      "description": "Number of distinct upstream project groups identified (packages with a project URL)."
     },
     "packages_without_url": {
       "type": "integer",
       "minimum": 0,
       "description": "Number of packages that have no upstream project URL."
+    },
+    "projects": {
+      "type": "array",
+      "description": "Upstream project groups, with related projects merged under common URL ancestors.",
+      "items": {
+        "$ref": "#/$defs/project"
+      }
     },
     "packages": {
       "type": "array",
@@ -36,6 +43,33 @@
     }
   },
   "$defs": {
+    "project": {
+      "type": "object",
+      "title": "ProjectGroup",
+      "description": "A group of related upstream projects, possibly merged under a common URL ancestor.",
+      "required": ["url", "project_urls", "package_names"],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The grouping URL — either an exact project URL or a common ancestor prefix."
+        },
+        "project_urls": {
+          "type": "array",
+          "description": "Individual project URLs within an ancestor group. Empty for single-project groups.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "package_names": {
+          "type": "array",
+          "description": "Names of all packages belonging to this project group.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "package": {
       "type": "object",
       "title": "InstalledPackage",

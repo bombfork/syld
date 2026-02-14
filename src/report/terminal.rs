@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Utc};
 use comfy_table::{ContentArrangement, Table};
@@ -17,12 +17,17 @@ pub fn sort_packages(packages: &mut [InstalledPackage]) {
     });
 }
 
-/// A group of packages that share the same upstream project URL.
+/// A group of packages that share the same upstream project URL or a common
+/// URL ancestor.
 #[derive(Debug)]
 pub struct ProjectGroup<'a> {
-    /// Normalized upstream URL used as the grouping key
+    /// Normalized URL used as the grouping key.  For ancestor groups this is the
+    /// common prefix; for single-project groups it is the exact normalized URL.
     pub url: String,
-    /// All packages belonging to this project
+    /// Individual project URLs within this ancestor group.
+    /// Empty for single-project groups and for the no-URL bucket.
+    pub project_urls: Vec<String>,
+    /// All packages belonging to this group.
     pub packages: Vec<&'a InstalledPackage>,
 }
 
@@ -40,25 +45,82 @@ pub fn normalize_url(url: &str) -> String {
     s.to_lowercase()
 }
 
-/// Group packages by their normalized upstream URL.
+/// Compute the parent URL by stripping the last path segment.
+///
+/// Returns `None` for bare domains (no `/` in the normalized URL) and for the
+/// empty string (no-URL bucket).
+pub fn compute_ancestor(normalized_url: &str) -> Option<&str> {
+    if normalized_url.is_empty() {
+        return None;
+    }
+    normalized_url.rfind('/').map(|pos| &normalized_url[..pos])
+}
+
+/// Group packages by their normalized upstream URL, then merge groups that
+/// share a common URL ancestor when two or more sibling projects exist.
 ///
 /// Packages without a URL are collected under a single empty-string key.
 /// The returned groups are sorted alphabetically by URL.
 pub fn group_by_project<'a>(packages: &'a [InstalledPackage]) -> Vec<ProjectGroup<'a>> {
-    let mut map: HashMap<String, Vec<&'a InstalledPackage>> = HashMap::new();
+    // Step 1: exact grouping by normalized URL.
+    let mut exact_map: HashMap<String, Vec<&'a InstalledPackage>> = HashMap::new();
 
     for pkg in packages {
         let key = match &pkg.url {
             Some(url) => normalize_url(url),
             None => String::new(),
         };
-        map.entry(key).or_default().push(pkg);
+        exact_map.entry(key).or_default().push(pkg);
     }
 
-    let mut groups: Vec<ProjectGroup<'a>> = map
-        .into_iter()
-        .map(|(url, packages)| ProjectGroup { url, packages })
-        .collect();
+    // Step 2: compute ancestors; collect which exact URLs share each ancestor.
+    let urls: Vec<String> = exact_map.keys().cloned().collect();
+    let mut ancestor_children: HashMap<String, Vec<String>> = HashMap::new();
+    for url in &urls {
+        if let Some(ancestor) = compute_ancestor(url)
+            && !ancestor.is_empty()
+        {
+            ancestor_children
+                .entry(ancestor.to_string())
+                .or_default()
+                .push(url.clone());
+        }
+    }
+
+    // Step 3: build merged ancestor groups (only when 2+ children).
+    let mut already_merged: HashSet<String> = HashSet::new();
+    let mut groups: Vec<ProjectGroup<'a>> = Vec::new();
+
+    for (ancestor, children) in &ancestor_children {
+        if children.len() >= 2 {
+            let mut all_packages: Vec<&'a InstalledPackage> = Vec::new();
+            let mut project_urls: Vec<String> = Vec::new();
+            for child_url in children {
+                already_merged.insert(child_url.clone());
+                project_urls.push(child_url.clone());
+                if let Some(pkgs) = exact_map.get(child_url) {
+                    all_packages.extend(pkgs.iter());
+                }
+            }
+            project_urls.sort();
+            groups.push(ProjectGroup {
+                url: ancestor.clone(),
+                project_urls,
+                packages: all_packages,
+            });
+        }
+    }
+
+    // Step 4: add non-merged groups as-is.
+    for (url, pkgs) in &exact_map {
+        if !already_merged.contains(url) {
+            groups.push(ProjectGroup {
+                url: url.clone(),
+                project_urls: vec![],
+                packages: pkgs.clone(),
+            });
+        }
+    }
 
     groups.sort_by(|a, b| a.url.cmp(&b.url));
     groups
@@ -147,8 +209,12 @@ pub fn print_summary(packages: &[InstalledPackage], limit: usize, timestamp: Dat
     detail_table.set_header(vec!["Project URL", "Packages"]);
 
     for group in page {
+        let url_display;
         let url_cell = if group.url.is_empty() {
             "(no project URL)"
+        } else if !group.project_urls.is_empty() {
+            url_display = format!("{}/*", group.url);
+            &url_display
         } else {
             &group.url
         };
@@ -394,6 +460,129 @@ mod tests {
         let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
         assert_eq!(with_url.len(), 1);
         assert_eq!(with_url[0].packages[0].name, "firefox");
+    }
+
+    // --- compute_ancestor tests ---
+
+    #[test]
+    fn ancestor_empty_url_returns_none() {
+        assert_eq!(compute_ancestor(""), None);
+    }
+
+    #[test]
+    fn ancestor_bare_domain_returns_none() {
+        assert_eq!(compute_ancestor("qemu.org"), None);
+    }
+
+    #[test]
+    fn ancestor_single_path_segment() {
+        assert_eq!(
+            compute_ancestor("apps.gnome.org/calculator"),
+            Some("apps.gnome.org")
+        );
+    }
+
+    #[test]
+    fn ancestor_multi_path_segments() {
+        assert_eq!(
+            compute_ancestor("0pointer.de/lennart/projects/libdaemon"),
+            Some("0pointer.de/lennart/projects")
+        );
+    }
+
+    #[test]
+    fn ancestor_github_style() {
+        assert_eq!(
+            compute_ancestor("github.com/systemd/systemd"),
+            Some("github.com/systemd")
+        );
+    }
+
+    // --- ancestor grouping tests ---
+
+    #[test]
+    fn group_merges_sibling_urls_under_ancestor() {
+        let packages = vec![
+            make_pkg_with_url(
+                "libdaemon",
+                "https://0pointer.de/lennart/projects/libdaemon",
+            ),
+            make_pkg_with_url(
+                "mod_dnssd",
+                "https://0pointer.de/lennart/projects/mod_dnssd",
+            ),
+            make_pkg_with_url("nss-mdns", "https://0pointer.de/lennart/projects/nss-mdns"),
+        ];
+        let groups = group_by_project(&packages);
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        assert_eq!(with_url.len(), 1);
+        assert_eq!(with_url[0].url, "0pointer.de/lennart/projects");
+        assert_eq!(with_url[0].project_urls.len(), 3);
+        assert_eq!(with_url[0].packages.len(), 3);
+    }
+
+    #[test]
+    fn group_does_not_merge_single_child() {
+        let packages = vec![
+            make_pkg_with_url("linux", "https://github.com/torvalds/linux"),
+            make_pkg_with_url("systemd", "https://github.com/systemd/systemd"),
+        ];
+        let groups = group_by_project(&packages);
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        // Each has a different ancestor (github.com/torvalds vs github.com/systemd)
+        // so no merging happens.
+        assert_eq!(with_url.len(), 2);
+        assert!(with_url.iter().all(|g| g.project_urls.is_empty()));
+    }
+
+    #[test]
+    fn group_merges_same_org_repos() {
+        let packages = vec![
+            make_pkg_with_url("systemd", "https://github.com/systemd/systemd"),
+            make_pkg_with_url("systemd-resolved", "https://github.com/systemd/resolved"),
+        ];
+        let groups = group_by_project(&packages);
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        assert_eq!(with_url.len(), 1);
+        assert_eq!(with_url[0].url, "github.com/systemd");
+        assert_eq!(with_url[0].project_urls.len(), 2);
+    }
+
+    #[test]
+    fn group_ancestor_mixed_with_standalone() {
+        let packages = vec![
+            make_pkg_with_url("gnome-calc", "https://apps.gnome.org/calculator"),
+            make_pkg_with_url("gnome-cal", "https://apps.gnome.org/calendar"),
+            make_pkg_with_url("linux", "https://kernel.org"),
+        ];
+        let groups = group_by_project(&packages);
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        // apps.gnome.org merges into 1, kernel.org stays standalone
+        assert_eq!(with_url.len(), 2);
+        let ancestor_group = with_url
+            .iter()
+            .find(|g| !g.project_urls.is_empty())
+            .unwrap();
+        assert_eq!(ancestor_group.url, "apps.gnome.org");
+        assert_eq!(ancestor_group.packages.len(), 2);
+    }
+
+    #[test]
+    fn group_ancestor_preserves_project_urls_sorted() {
+        let packages = vec![
+            make_pkg_with_url("znss", "https://0pointer.de/projects/z-project"),
+            make_pkg_with_url("adaemon", "https://0pointer.de/projects/a-project"),
+        ];
+        let groups = group_by_project(&packages);
+        let with_url: Vec<_> = groups.iter().filter(|g| !g.url.is_empty()).collect();
+        assert_eq!(with_url.len(), 1);
+        assert_eq!(
+            with_url[0].project_urls,
+            vec![
+                "0pointer.de/projects/a-project",
+                "0pointer.de/projects/z-project"
+            ]
+        );
     }
 
     // --- format_package_terminal tests ---
