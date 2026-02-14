@@ -153,7 +153,7 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
     }
 
     terminal::sort_packages(&mut all_packages);
-    terminal::print_summary(&all_packages, limit);
+    terminal::print_summary(&all_packages, limit, chrono::Utc::now());
 
     Ok(())
 }
@@ -176,7 +176,7 @@ fn cmd_report(_config: &Config, format: &ReportFormat) -> Result<()> {
         ReportFormat::Terminal => {
             let mut packages = scan.packages;
             terminal::sort_packages(&mut packages);
-            terminal::print_summary(&packages, 0);
+            terminal::print_summary(&packages, 0, scan.timestamp);
         }
         ReportFormat::Json => {
             json::print_json(&scan.packages, scan.timestamp)?;

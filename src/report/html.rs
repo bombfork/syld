@@ -69,6 +69,9 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
     html.push_str("</style>\n");
     html.push_str("</head>\n<body>\n");
 
+    let with_url_count = groups.iter().filter(|g| !g.url.is_empty()).count();
+    let without_url_count = sorted.iter().filter(|p| p.url.is_none()).count();
+
     html.push_str("<h1>syld report</h1>\n");
     html.push_str(&format!(
         "<p class=\"meta\">Scan date: {}</p>\n",
@@ -77,6 +80,14 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
     html.push_str(&format!(
         "<p class=\"meta\">Total packages: {}</p>\n",
         sorted.len()
+    ));
+    html.push_str(&format!(
+        "<p class=\"meta\">Upstream projects: {}</p>\n",
+        with_url_count
+    ));
+    html.push_str(&format!(
+        "<p class=\"meta\">Packages without URL: {}</p>\n",
+        without_url_count
     ));
 
     // Source summary
@@ -93,7 +104,6 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
 
     // Projects
     if !groups.is_empty() {
-        let with_url_count = groups.iter().filter(|g| !g.url.is_empty()).count();
         html.push_str("<h2>Upstream projects</h2>\n");
         html.push_str(&format!(
             "<p class=\"meta\">{} packages grouped into {} projects</p>\n",

@@ -5,20 +5,29 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::discover::InstalledPackage;
+use crate::report::terminal::group_by_project;
 
 /// A JSON-serializable report of a scan.
 #[derive(Serialize)]
 pub struct JsonReport {
     pub scan_timestamp: DateTime<Utc>,
     pub total_packages: usize,
+    pub total_projects: usize,
+    pub packages_without_url: usize,
     pub packages: Vec<InstalledPackage>,
 }
 
 /// Generate a JSON report and print it to stdout.
 pub fn print_json(packages: &[InstalledPackage], timestamp: DateTime<Utc>) -> Result<()> {
+    let groups = group_by_project(packages);
+    let total_projects = groups.iter().filter(|g| !g.url.is_empty()).count();
+    let packages_without_url = packages.iter().filter(|p| p.url.is_none()).count();
+
     let report = JsonReport {
         scan_timestamp: timestamp,
         total_packages: packages.len(),
+        total_projects,
+        packages_without_url,
         packages: packages.to_vec(),
     };
 
@@ -61,6 +70,8 @@ mod tests {
         let report = JsonReport {
             scan_timestamp: timestamp,
             total_packages: packages.len(),
+            total_projects: 2,
+            packages_without_url: 0,
             packages: packages.clone(),
         };
 
@@ -68,6 +79,8 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed["total_packages"], 2);
+        assert_eq!(parsed["total_projects"], 2);
+        assert_eq!(parsed["packages_without_url"], 0);
         assert_eq!(parsed["packages"][0]["name"], "firefox");
         assert_eq!(parsed["packages"][0]["version"], "128.0");
         assert_eq!(parsed["packages"][0]["source"], "Pacman");
@@ -83,6 +96,8 @@ mod tests {
         let report = JsonReport {
             scan_timestamp: timestamp,
             total_packages: 0,
+            total_projects: 0,
+            packages_without_url: 0,
             packages: vec![],
         };
 
@@ -90,6 +105,8 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed["total_packages"], 0);
+        assert_eq!(parsed["total_projects"], 0);
+        assert_eq!(parsed["packages_without_url"], 0);
         assert!(parsed["packages"].as_array().unwrap().is_empty());
     }
 
@@ -108,6 +125,8 @@ mod tests {
         let report = JsonReport {
             scan_timestamp: timestamp,
             total_packages: 1,
+            total_projects: 0,
+            packages_without_url: 1,
             packages,
         };
 
@@ -137,6 +156,8 @@ mod tests {
         let report = JsonReport {
             scan_timestamp: timestamp,
             total_packages: packages.len(),
+            total_projects: 2,
+            packages_without_url: 0,
             packages,
         };
 
@@ -155,6 +176,8 @@ mod tests {
         let report = JsonReport {
             scan_timestamp: timestamp,
             total_packages: 0,
+            total_projects: 0,
+            packages_without_url: 0,
             packages: vec![],
         };
 
@@ -181,6 +204,8 @@ mod tests {
         let report = JsonReport {
             scan_timestamp: timestamp,
             total_packages: packages.len(),
+            total_projects: 0,
+            packages_without_url: 1,
             packages,
         };
 

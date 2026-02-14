@@ -4,7 +4,7 @@
   "title": "syld JSON Report",
   "description": "Schema for the JSON report produced by `syld report --format json`, containing a timestamped inventory of installed packages and their license information.",
   "type": "object",
-  "required": ["scan_timestamp", "total_packages", "packages"],
+  "required": ["scan_timestamp", "total_packages", "total_projects", "packages_without_url", "packages"],
   "additionalProperties": false,
   "properties": {
     "scan_timestamp": {
@@ -16,6 +16,16 @@
       "type": "integer",
       "minimum": 0,
       "description": "Total number of packages included in the report."
+    },
+    "total_projects": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of distinct upstream projects identified (packages with a project URL)."
+    },
+    "packages_without_url": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of packages that have no upstream project URL."
     },
     "packages": {
       "type": "array",
