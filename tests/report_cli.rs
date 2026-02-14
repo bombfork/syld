@@ -40,6 +40,35 @@ fn seed_scan_packages(data_home: &Path, packages: &[InstalledPackage]) {
     storage.save_scan(packages).unwrap();
 }
 
+fn ancestor_group_packages() -> Vec<InstalledPackage> {
+    vec![
+        InstalledPackage {
+            name: "libdaemon".to_string(),
+            version: "0.14".to_string(),
+            description: None,
+            url: Some("https://0pointer.de/lennart/projects/libdaemon".to_string()),
+            source: PackageSource::Pacman,
+            licenses: vec![],
+        },
+        InstalledPackage {
+            name: "nss-mdns".to_string(),
+            version: "0.15".to_string(),
+            description: None,
+            url: Some("https://0pointer.de/lennart/projects/nss-mdns".to_string()),
+            source: PackageSource::Pacman,
+            licenses: vec![],
+        },
+        InstalledPackage {
+            name: "linux".to_string(),
+            version: "6.9.7".to_string(),
+            description: None,
+            url: Some("https://kernel.org".to_string()),
+            source: PackageSource::Pacman,
+            licenses: vec!["GPL-2.0".to_string()],
+        },
+    ]
+}
+
 fn single_source_packages() -> Vec<InstalledPackage> {
     vec![
         InstalledPackage {
@@ -262,4 +291,88 @@ fn report_json_includes_source_per_package() {
         .collect();
     assert!(sources.contains(&"Pacman"));
     assert!(sources.contains(&"Flatpak"));
+}
+
+#[test]
+fn report_terminal_shows_ancestor_group() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan_packages(data.path(), &ancestor_group_packages());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "terminal"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0pointer.de/lennart/projects/*"))
+        .stdout(predicate::str::contains("libdaemon"))
+        .stdout(predicate::str::contains("nss-mdns"))
+        .stdout(predicate::str::contains("kernel.org"));
+}
+
+#[test]
+fn report_html_shows_ancestor_group() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan_packages(data.path(), &ancestor_group_packages());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "html"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0pointer.de/lennart/projects/*"))
+        .stdout(predicate::str::contains("libdaemon"))
+        .stdout(predicate::str::contains("nss-mdns"));
+}
+
+#[test]
+fn report_json_shows_ancestor_group() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan_packages(data.path(), &ancestor_group_packages());
+
+    let output = syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("not valid JSON");
+
+    // Two project groups: the ancestor group and kernel.org
+    let projects = parsed["projects"].as_array().unwrap();
+    assert_eq!(projects.len(), 2);
+
+    let ancestor = projects
+        .iter()
+        .find(|p| !p["project_urls"].as_array().unwrap().is_empty())
+        .expect("should have an ancestor group");
+    assert_eq!(ancestor["url"], "0pointer.de/lennart/projects");
+    assert_eq!(ancestor["project_urls"].as_array().unwrap().len(), 2);
+    assert_eq!(ancestor["package_names"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn report_json_ancestor_validates_against_schema() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan_packages(data.path(), &ancestor_group_packages());
+
+    let output = syld_with_db(tmp.path(), data.path())
+        .args(["report", "--format", "json"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let instance: serde_json::Value = serde_json::from_str(&stdout).expect("not valid JSON");
+
+    let schema_path =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("schemas/report.v1.json");
+    let schema_raw = std::fs::read_to_string(&schema_path).expect("failed to read schema file");
+    let schema: serde_json::Value =
+        serde_json::from_str(&schema_raw).expect("schema is not valid JSON");
+
+    jsonschema::validate(&schema, &instance)
+        .expect("JSON report with ancestor groups should validate against the schema");
 }

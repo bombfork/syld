@@ -7,6 +7,18 @@ use serde::Serialize;
 use crate::discover::InstalledPackage;
 use crate::report::terminal::group_by_project;
 
+/// A grouped upstream project for the JSON report.
+#[derive(Serialize)]
+pub struct JsonProject {
+    /// The grouping URL — either an exact project URL or a common ancestor prefix.
+    pub url: String,
+    /// Individual project URLs within an ancestor group.
+    /// Empty array for single-project groups and the no-URL bucket.
+    pub project_urls: Vec<String>,
+    /// Names of all packages that belong to this group.
+    pub package_names: Vec<String>,
+}
+
 /// A JSON-serializable report of a scan.
 #[derive(Serialize)]
 pub struct JsonReport {
@@ -14,6 +26,7 @@ pub struct JsonReport {
     pub total_packages: usize,
     pub total_projects: usize,
     pub packages_without_url: usize,
+    pub projects: Vec<JsonProject>,
     pub packages: Vec<InstalledPackage>,
 }
 
@@ -23,11 +36,27 @@ pub fn print_json(packages: &[InstalledPackage], timestamp: DateTime<Utc>) -> Re
     let total_projects = groups.iter().filter(|g| !g.url.is_empty()).count();
     let packages_without_url = packages.iter().filter(|p| p.url.is_none()).count();
 
+    let projects: Vec<JsonProject> = groups
+        .iter()
+        .filter(|g| !g.url.is_empty())
+        .map(|g| {
+            let mut package_names: Vec<String> =
+                g.packages.iter().map(|p| p.name.clone()).collect();
+            package_names.sort();
+            JsonProject {
+                url: g.url.clone(),
+                project_urls: g.project_urls.clone(),
+                package_names,
+            }
+        })
+        .collect();
+
     let report = JsonReport {
         scan_timestamp: timestamp,
         total_packages: packages.len(),
         total_projects,
         packages_without_url,
+        projects,
         packages: packages.to_vec(),
     };
 
@@ -72,6 +101,18 @@ mod tests {
             total_packages: packages.len(),
             total_projects: 2,
             packages_without_url: 0,
+            projects: vec![
+                JsonProject {
+                    url: "kernel.org".to_string(),
+                    project_urls: vec![],
+                    package_names: vec!["linux".to_string()],
+                },
+                JsonProject {
+                    url: "mozilla.org/firefox".to_string(),
+                    project_urls: vec![],
+                    package_names: vec!["firefox".to_string()],
+                },
+            ],
             packages: packages.clone(),
         };
 
@@ -87,6 +128,7 @@ mod tests {
         assert_eq!(parsed["packages"][0]["licenses"][0], "MPL-2.0");
         assert_eq!(parsed["packages"][1]["name"], "linux");
         assert!(parsed["scan_timestamp"].as_str().unwrap().contains("2025"));
+        assert_eq!(parsed["projects"].as_array().unwrap().len(), 2);
     }
 
     #[test]
@@ -98,6 +140,7 @@ mod tests {
             total_packages: 0,
             total_projects: 0,
             packages_without_url: 0,
+            projects: vec![],
             packages: vec![],
         };
 
@@ -108,6 +151,7 @@ mod tests {
         assert_eq!(parsed["total_projects"], 0);
         assert_eq!(parsed["packages_without_url"], 0);
         assert!(parsed["packages"].as_array().unwrap().is_empty());
+        assert!(parsed["projects"].as_array().unwrap().is_empty());
     }
 
     #[test]
@@ -127,6 +171,7 @@ mod tests {
             total_packages: 1,
             total_projects: 0,
             packages_without_url: 1,
+            projects: vec![],
             packages,
         };
 
@@ -158,6 +203,18 @@ mod tests {
             total_packages: packages.len(),
             total_projects: 2,
             packages_without_url: 0,
+            projects: vec![
+                JsonProject {
+                    url: "kernel.org".to_string(),
+                    project_urls: vec![],
+                    package_names: vec!["linux".to_string()],
+                },
+                JsonProject {
+                    url: "mozilla.org/firefox".to_string(),
+                    project_urls: vec![],
+                    package_names: vec!["firefox".to_string()],
+                },
+            ],
             packages,
         };
 
@@ -178,6 +235,7 @@ mod tests {
             total_packages: 0,
             total_projects: 0,
             packages_without_url: 0,
+            projects: vec![],
             packages: vec![],
         };
 
@@ -206,6 +264,7 @@ mod tests {
             total_packages: packages.len(),
             total_projects: 0,
             packages_without_url: 1,
+            projects: vec![],
             packages,
         };
 
