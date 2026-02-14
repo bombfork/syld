@@ -23,6 +23,7 @@
 mod apt;
 mod brew;
 mod dnf;
+mod docker;
 mod flatpak;
 mod mise;
 mod nix;
@@ -83,6 +84,7 @@ pub enum PackageSource {
     Snap,
     Nix,
     Mise,
+    Docker,
 }
 
 impl std::fmt::Display for PackageSource {
@@ -96,6 +98,7 @@ impl std::fmt::Display for PackageSource {
             PackageSource::Snap => write!(f, "snap"),
             PackageSource::Nix => write!(f, "nix"),
             PackageSource::Mise => write!(f, "mise"),
+            PackageSource::Docker => write!(f, "docker"),
         }
     }
 }
@@ -163,6 +166,7 @@ pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
         Box::new(snap::SnapDiscoverer),
         Box::new(nix::NixDiscoverer),
         Box::new(mise::MiseDiscoverer),
+        Box::new(docker::DockerDiscoverer),
     ];
 
     candidates
