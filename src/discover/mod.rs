@@ -21,6 +21,7 @@
 //! See [`pacman::PacmanDiscoverer`] for a reference implementation.
 
 mod apt;
+mod brew;
 mod dnf;
 mod flatpak;
 mod mise;
@@ -76,6 +77,7 @@ pub struct InstalledPackage {
 pub enum PackageSource {
     Pacman,
     Apt,
+    Brew,
     Dnf,
     Flatpak,
     Snap,
@@ -88,6 +90,7 @@ impl std::fmt::Display for PackageSource {
         match self {
             PackageSource::Pacman => write!(f, "pacman"),
             PackageSource::Apt => write!(f, "apt"),
+            PackageSource::Brew => write!(f, "brew"),
             PackageSource::Dnf => write!(f, "dnf"),
             PackageSource::Flatpak => write!(f, "flatpak"),
             PackageSource::Snap => write!(f, "snap"),
@@ -153,6 +156,7 @@ pub trait Discoverer {
 pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
     let candidates: Vec<Box<dyn Discoverer>> = vec![
         Box::new(apt::AptDiscoverer),
+        Box::new(brew::BrewDiscoverer),
         Box::new(dnf::DnfDiscoverer),
         Box::new(pacman::PacmanDiscoverer),
         Box::new(flatpak::FlatpakDiscoverer),
