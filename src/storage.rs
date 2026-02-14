@@ -298,6 +298,7 @@ fn parse_package_source(s: &str) -> Result<PackageSource> {
         "mise" => Ok(PackageSource::Mise),
         "brew" => Ok(PackageSource::Brew),
         "docker" => Ok(PackageSource::Docker),
+        "podman" => Ok(PackageSource::Podman),
         other => anyhow::bail!("Unknown package source: {other}"),
     }
 }
@@ -614,6 +615,7 @@ mod tests {
             PackageSource::Mise,
             PackageSource::Brew,
             PackageSource::Docker,
+            PackageSource::Podman,
         ];
 
         for source in sources {
