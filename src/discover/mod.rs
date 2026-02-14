@@ -21,6 +21,7 @@
 //! See [`pacman::PacmanDiscoverer`] for a reference implementation.
 
 mod flatpak;
+mod mise;
 mod pacman;
 
 use anyhow::Result;
@@ -75,6 +76,7 @@ pub enum PackageSource {
     Flatpak,
     Snap,
     Nix,
+    Mise,
 }
 
 impl std::fmt::Display for PackageSource {
@@ -86,6 +88,7 @@ impl std::fmt::Display for PackageSource {
             PackageSource::Flatpak => write!(f, "flatpak"),
             PackageSource::Snap => write!(f, "snap"),
             PackageSource::Nix => write!(f, "nix"),
+            PackageSource::Mise => write!(f, "mise"),
         }
     }
 }
@@ -147,6 +150,7 @@ pub fn active_discoverers(_config: &Config) -> Vec<Box<dyn Discoverer>> {
     let candidates: Vec<Box<dyn Discoverer>> = vec![
         Box::new(pacman::PacmanDiscoverer),
         Box::new(flatpak::FlatpakDiscoverer),
+        Box::new(mise::MiseDiscoverer),
     ];
 
     candidates
