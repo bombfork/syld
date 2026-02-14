@@ -30,4 +30,32 @@ pub struct Allocation {
 
     /// Suggested funding channel
     pub via: Option<String>,
+
+    /// Reason for including this project (e.g. "top dependency", "most used")
+    pub reason: Option<String>,
+}
+
+/// A record of a completed donation.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DonationRecord {
+    /// Database row ID
+    pub id: i64,
+
+    /// URL of the project that received the donation
+    pub project_url: String,
+
+    /// Amount donated
+    pub amount: f64,
+
+    /// Currency code (e.g. "USD", "EUR")
+    pub currency: String,
+
+    /// When the donation was made
+    pub donated_at: chrono::DateTime<chrono::Utc>,
+
+    /// Funding channel used
+    pub via: Option<String>,
+
+    /// Free-form notes
+    pub notes: Option<String>,
 }

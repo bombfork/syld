@@ -25,6 +25,22 @@ pub struct UpstreamProject {
 
     /// Contributing guide URL (populated by enrichment)
     pub contributing_url: Option<String>,
+
+    /// Whether the project is open source (resolved from license analysis)
+    #[serde(default)]
+    pub is_open_source: Option<bool>,
+
+    /// Project documentation URL
+    #[serde(default)]
+    pub documentation_url: Option<String>,
+
+    /// Link to beginner-friendly issues
+    #[serde(default)]
+    pub good_first_issues_url: Option<String>,
+
+    /// Star/favorite count (e.g. GitHub stars)
+    #[serde(default)]
+    pub stars: Option<u64>,
 }
 
 /// A way to financially support a project.
