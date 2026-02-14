@@ -296,6 +296,8 @@ fn parse_package_source(s: &str) -> Result<PackageSource> {
         "snap" => Ok(PackageSource::Snap),
         "nix" => Ok(PackageSource::Nix),
         "mise" => Ok(PackageSource::Mise),
+        "brew" => Ok(PackageSource::Brew),
+        "docker" => Ok(PackageSource::Docker),
         other => anyhow::bail!("Unknown package source: {other}"),
     }
 }
@@ -610,6 +612,8 @@ mod tests {
             PackageSource::Snap,
             PackageSource::Nix,
             PackageSource::Mise,
+            PackageSource::Brew,
+            PackageSource::Docker,
         ];
 
         for source in sources {
@@ -621,7 +625,7 @@ mod tests {
 
     #[test]
     fn parse_unknown_source_errors() {
-        let result = parse_package_source("brew");
+        let result = parse_package_source("unknown_manager");
         assert!(result.is_err());
     }
 
