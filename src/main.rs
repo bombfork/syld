@@ -241,10 +241,8 @@ fn cmd_cache(command: &CacheCommands) -> Result<()> {
     match command {
         CacheCommands::Clear => {
             let storage = Storage::open().context("Failed to open database")?;
-            let (enrichment, packages, scans) = storage.clear_cache()?;
-            eprintln!(
-                "Cleared {enrichment} cached enrichment entries, {packages} packages, {scans} scans."
-            );
+            storage.clear_cache()?;
+            eprintln!("Cache cleared. Run `syld scan` to rebuild.");
             Ok(())
         }
     }
