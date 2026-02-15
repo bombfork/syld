@@ -24,4 +24,3 @@ jobs:
       - run: cargo clippy -- -D warnings
       - run: cargo test
       - run: cargo build
-      - run: cargo build --features enrich
