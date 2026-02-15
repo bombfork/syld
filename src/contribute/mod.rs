@@ -12,10 +12,99 @@
 //!
 //! # Adding a new backend
 //!
-//! 1. Create a new sub-module (e.g. `github_stars.rs`) and implement
-//!    [`ContributionBackend`] for a unit struct representing the backend.
-//! 2. Register the backend in [`active_backends()`] by appending a
-//!    `Box::new(...)` entry to the `candidates` vector.
+//! Follow these steps to add a new contribution type. For a complete
+//! reference implementation, see
+//! [`github_good_first_issues::GitHubGoodFirstIssuesBackend`].
+//!
+//! ## 1. Create a module file
+//!
+//! Add a new file under `src/contribute/` (e.g. `github_stars.rs`) and
+//! declare it in this module with `pub mod github_stars;`. Define a public
+//! unit struct to represent the backend:
+//!
+//! ```rust,ignore
+//! pub struct GitHubStarsBackend;
+//! ```
+//!
+//! ## 2. Implement [`ContributionBackend`]
+//!
+//! The trait has three required methods:
+//!
+//! - **[`name()`](ContributionBackend::name)** — Return a stable, lowercase
+//!   identifier (e.g. `"github_stars"`). This string appears in reports and
+//!   logs and must not change between releases.
+//!
+//! - **[`is_available()`](ContributionBackend::is_available)** — Return
+//!   `true` if the backend can operate in the current environment. This is
+//!   called at startup to filter backends, so it must be **cheap and fast**.
+//!   Typical checks include verifying that a CLI tool exists, an API token
+//!   is set, or a well-known path is present. Avoid network round-trips or
+//!   heavy computation here.
+//!
+//! - **[`find_opportunities()`](ContributionBackend::find_opportunities)** —
+//!   Inspect the [`UpstreamProject`] metadata (repo URL, bug tracker,
+//!   documentation URL, etc.) and return a `Vec<ContributionOpportunity>`.
+//!   Returning an empty vector is fine when the project is not applicable
+//!   (e.g. not hosted on the right platform). For unrecoverable failures
+//!   (network timeouts, malformed responses), return an `Err` — the caller
+//!   logs the error and continues with other backends.
+//!
+//! ## 3. Add a [`ContributionKind`] variant (if needed)
+//!
+//! If no existing [`ContributionKind`] variant fits the new action, add one
+//! to the enum. Remember to update the [`Display`](std::fmt::Display) impl
+//! and the ordering tests in this module.
+//!
+//! ## 4. Register the backend
+//!
+//! In [`active_backends()`], append a `Box::new(YourBackend)` entry to the
+//! `candidates` vector. The new backend will be included automatically
+//! whenever its [`is_available()`](ContributionBackend::is_available) check
+//! passes.
+//!
+//! # Example
+//!
+//! A minimal backend that suggests starring GitHub repositories:
+//!
+//! ```rust,ignore
+//! use anyhow::Result;
+//! use crate::contribute::{ContributionBackend, ContributionKind, ContributionOpportunity};
+//! use crate::project::UpstreamProject;
+//!
+//! pub struct GitHubStarsBackend;
+//!
+//! impl ContributionBackend for GitHubStarsBackend {
+//!     fn name(&self) -> &str {
+//!         "github_stars"
+//!     }
+//!
+//!     fn is_available(&self) -> bool {
+//!         // Check that the `gh` CLI is authenticated (cheap subprocess call).
+//!         std::process::Command::new("gh")
+//!             .args(["auth", "status"])
+//!             .output()
+//!             .map(|o| o.status.success())
+//!             .unwrap_or(false)
+//!     }
+//!
+//!     fn find_opportunities(
+//!         &self,
+//!         project: &UpstreamProject,
+//!     ) -> Result<Vec<ContributionOpportunity>> {
+//!         let repo_url = match &project.repo_url {
+//!             Some(url) if url.contains("github.com") => url,
+//!             _ => return Ok(Vec::new()),
+//!         };
+//!
+//!         Ok(vec![ContributionOpportunity {
+//!             kind: ContributionKind::Star,
+//!             title: format!("Star {} on GitHub", project.name),
+//!             description: None,
+//!             url: repo_url.clone(),
+//!         }])
+//!     }
+//! }
+//! ```
 //!
 //! See the parent issue <https://github.com/bombfork/syld/issues/26> for
 //! the full design context.
