@@ -20,6 +20,8 @@
 //! See the parent issue <https://github.com/bombfork/syld/issues/26> for
 //! the full design context.
 
+pub mod github_good_first_issues;
+
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
@@ -126,10 +128,9 @@ pub trait ContributionBackend {
 /// backend will automatically be included whenever its
 /// [`is_available()`](ContributionBackend::is_available) check passes.
 pub fn active_backends(_config: &Config) -> Vec<Box<dyn ContributionBackend>> {
-    let candidates: Vec<Box<dyn ContributionBackend>> = vec![
-        // Backends will be registered here as they are implemented.
-        // Example: Box::new(github_stars::GitHubStarsBackend),
-    ];
+    let candidates: Vec<Box<dyn ContributionBackend>> = vec![Box::new(
+        github_good_first_issues::GitHubGoodFirstIssuesBackend,
+    )];
 
     candidates
         .into_iter()
@@ -272,9 +273,12 @@ mod tests {
     }
 
     #[test]
-    fn active_backends_returns_empty_initially() {
+    fn active_backends_returns_registered_backends() {
         let config = Config::default();
         let backends = active_backends(&config);
-        assert!(backends.is_empty());
+        // At least one backend is registered (GitHub good first issues).
+        // Whether it appears depends on whether `gh` is authenticated,
+        // so we just verify the call doesn't panic.
+        let _ = backends;
     }
 }
