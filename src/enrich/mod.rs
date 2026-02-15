@@ -23,6 +23,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 
 use crate::config::Config;
 use crate::discover::InstalledPackage;
@@ -38,7 +39,7 @@ pub type EnrichmentMap = HashMap<String, UpstreamProject>;
 /// Each implementation enriches an [`UpstreamProject`] with additional metadata
 /// from a particular source. The enriched project is returned as a new value —
 /// the caller merges it with the base using [`merge_enrichment`].
-pub trait EnrichmentBackend {
+pub trait EnrichmentBackend: Send + Sync {
     /// A stable, lowercase identifier for this backend.
     fn name(&self) -> &str;
 
@@ -54,8 +55,8 @@ pub trait EnrichmentBackend {
 }
 
 /// Returns all enrichment backends that are available in the current environment.
-pub fn active_backends(_config: &Config) -> Vec<Box<dyn EnrichmentBackend>> {
-    let candidates: Vec<Box<dyn EnrichmentBackend>> = vec![
+pub fn active_backends(_config: &Config) -> Vec<Box<dyn EnrichmentBackend + Send + Sync>> {
+    let candidates: Vec<Box<dyn EnrichmentBackend + Send + Sync>> = vec![
         Box::new(license_classify::LicenseClassifyBackend),
         Box::new(github::GitHubBackend),
         Box::new(open_collective::OpenCollectiveBackend),
@@ -117,13 +118,19 @@ pub fn merge_enrichment(base: &UpstreamProject, enriched: &UpstreamProject) -> U
 /// Enrich packages using all available backends.
 ///
 /// Deduplicates packages by normalized URL, checks the enrichment cache first,
-/// and runs each backend on cache misses. Results are saved back to cache.
+/// and runs each backend on cache misses in parallel using rayon.
+/// Results are saved back to cache.
+///
+/// - `force_refresh`: bypass cache, re-enrich everything
+/// - `jobs`: number of parallel threads (default 4, overridden by config or CLI)
 ///
 /// Returns an `EnrichmentMap` keyed by normalized URL.
 pub fn enrich_packages(
     packages: &[InstalledPackage],
     storage: &Storage,
     config: &Config,
+    force_refresh: bool,
+    jobs: Option<usize>,
 ) -> Result<EnrichmentMap> {
     let backends = active_backends(config);
 
@@ -174,47 +181,77 @@ pub fn enrich_packages(
             .progress_chars("=> "),
     );
 
+    // Phase 1 (main thread): separate cache hits from misses
     let mut enrichment_map = EnrichmentMap::new();
+    let mut to_enrich: Vec<(String, UpstreamProject)> = Vec::new();
 
     for (normalized_url, base_project) in &url_to_project {
-        pb.set_message(base_project.name.clone());
-
-        // Check cache first (use the original URL from repo_url as cache key)
         let cache_key = base_project.repo_url.as_deref().unwrap_or(normalized_url);
 
-        if let Ok(Some(cached)) = storage.get_enrichment(cache_key) {
+        if !force_refresh && let Ok(Some(cached)) = storage.get_enrichment(cache_key) {
             enrichment_map.insert(normalized_url.clone(), cached);
             pb.inc(1);
             continue;
         }
 
-        // Run all backends
-        let mut enriched = base_project.clone();
-        for backend in &backends {
-            match backend.enrich(&enriched) {
-                Ok(result) => {
-                    enriched = merge_enrichment(&enriched, &result);
-                }
-                Err(e) => {
-                    eprintln!(
-                        "Warning: {} enrichment failed for {}: {e}",
-                        backend.name(),
-                        base_project.name
-                    );
-                }
-            }
-        }
+        to_enrich.push((normalized_url.clone(), base_project.clone()));
+    }
 
-        // Save to cache
-        if let Err(e) = storage.save_enrichment(cache_key, &enriched) {
+    // Phase 2 (rayon parallel): enrich cache misses
+    const DEFAULT_ENRICH_JOBS: usize = 4;
+    let num_jobs = jobs
+        .or(config.enrich_jobs)
+        .unwrap_or(DEFAULT_ENRICH_JOBS)
+        .max(1);
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(num_jobs)
+        .build()
+        .unwrap_or_else(|_| rayon::ThreadPoolBuilder::new().build().unwrap());
+
+    let results: Vec<(String, String, UpstreamProject)> = pool.install(|| {
+        to_enrich
+            .into_par_iter()
+            .map(|(normalized_url, base_project)| {
+                pb.set_message(base_project.name.clone());
+
+                let mut enriched = base_project.clone();
+                for backend in &backends {
+                    match backend.enrich(&enriched) {
+                        Ok(result) => {
+                            enriched = merge_enrichment(&enriched, &result);
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "Warning: {} enrichment failed for {}: {e}",
+                                backend.name(),
+                                base_project.name
+                            );
+                        }
+                    }
+                }
+
+                let cache_key = base_project
+                    .repo_url
+                    .as_deref()
+                    .unwrap_or(&normalized_url)
+                    .to_string();
+
+                pb.inc(1);
+                (normalized_url, cache_key, enriched)
+            })
+            .collect()
+    });
+
+    // Phase 3 (main thread): save results to cache and build final map
+    for (normalized_url, cache_key, enriched) in results {
+        if let Err(e) = storage.save_enrichment(&cache_key, &enriched) {
             eprintln!(
                 "Warning: failed to cache enrichment for {}: {e}",
-                base_project.name
+                enriched.name
             );
         }
-
-        enrichment_map.insert(normalized_url.clone(), enriched);
-        pb.inc(1);
+        enrichment_map.insert(normalized_url, enriched);
     }
 
     pb.finish_with_message("done");

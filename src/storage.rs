@@ -506,6 +506,15 @@ impl Storage {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Clear the enrichment cache, returning the number of rows deleted.
+    pub fn clear_enrichment_cache(&self) -> Result<usize> {
+        let count = self
+            .conn
+            .execute("DELETE FROM enrichment_cache", [])
+            .context("Failed to clear enrichment cache")?;
+        Ok(count)
+    }
+
     /// Get all donations since a given timestamp.
     pub fn donations_since(&self, since: DateTime<Utc>) -> Result<Vec<DonationRecord>> {
         let mut stmt = self.conn.prepare(
@@ -1137,6 +1146,57 @@ mod tests {
             .donations_since(Utc::now() - Duration::days(30))
             .unwrap();
         assert!(donations.is_empty());
+    }
+
+    // --- Clear enrichment cache tests ---
+
+    #[test]
+    fn clear_enrichment_cache_empty() {
+        let storage = open_memory();
+        let count = storage.clear_enrichment_cache().unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn clear_enrichment_cache_removes_entries() {
+        let storage = open_memory();
+        let project = UpstreamProject {
+            name: "Test".to_string(),
+            repo_url: None,
+            homepage: None,
+            licenses: vec![],
+            funding: vec![],
+            bug_tracker: None,
+            contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
+        };
+
+        storage
+            .save_enrichment("https://a.example.org", &project)
+            .unwrap();
+        storage
+            .save_enrichment("https://b.example.org", &project)
+            .unwrap();
+
+        let count = storage.clear_enrichment_cache().unwrap();
+        assert_eq!(count, 2);
+
+        // Verify cache is empty
+        assert!(
+            storage
+                .get_enrichment("https://a.example.org")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            storage
+                .get_enrichment("https://b.example.org")
+                .unwrap()
+                .is_none()
+        );
     }
 
     // --- Backward-compatible deserialization test ---
