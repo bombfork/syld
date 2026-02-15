@@ -259,7 +259,15 @@ fn parse_funding_yml(content: &str) -> Vec<FundingChannel> {
         };
 
         let key = key.trim().to_lowercase();
+        // Strip inline YAML comments (` #` or a bare `#` at the start of the
+        // value).  This filters out template placeholders such as
+        // `github: # Replace with up to 4 GitHub Sponsors-enabled usernames`.
         let value = value.trim();
+        let value = match value.find(" #") {
+            Some(pos) => value[..pos].trim(),
+            None if value.starts_with('#') => "",
+            None => value,
+        };
 
         if value.is_empty() {
             continue;
@@ -459,6 +467,27 @@ github: octocat
     fn parse_funding_yml_empty() {
         let channels = parse_funding_yml("");
         assert!(channels.is_empty());
+    }
+
+    #[test]
+    fn parse_funding_yml_strips_inline_comments() {
+        let content = "\
+github: # Replace with up to 4 GitHub Sponsors-enabled usernames e.g., [user1, user2]
+patreon: # Change this to your Patreon username
+ko_fi: realuser
+";
+        let channels = parse_funding_yml(content);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].platform, "Ko-fi");
+        assert_eq!(channels[0].url, "https://ko-fi.com/realuser");
+    }
+
+    #[test]
+    fn parse_funding_yml_value_with_trailing_comment() {
+        let content = "github: octocat # my sponsor page\n";
+        let channels = parse_funding_yml(content);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].url, "https://github.com/sponsors/octocat");
     }
 
     #[test]

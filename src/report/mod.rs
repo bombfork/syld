@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 
 use crate::contribute::ContributionOpportunity;
+use crate::enrich::EnrichmentMap;
+use crate::project::UpstreamProject;
 
 pub mod html;
 pub mod json;
@@ -36,6 +38,28 @@ pub fn lookup_contributions(
     }
 
     result
+}
+
+/// Look up enrichment data for a project group, checking both the group URL
+/// and any individual project URLs within an ancestor group.
+///
+/// Returns the first match found, since enrichment is per-project.
+pub fn lookup_enrichment<'a>(
+    group_url: &str,
+    project_urls: &[String],
+    enrichment: &'a EnrichmentMap,
+) -> Option<&'a UpstreamProject> {
+    if let Some(proj) = enrichment.get(group_url) {
+        return Some(proj);
+    }
+
+    for url in project_urls {
+        if let Some(proj) = enrichment.get(url.as_str()) {
+            return Some(proj);
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

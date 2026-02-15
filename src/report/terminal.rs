@@ -6,7 +6,8 @@ use chrono::{DateTime, Utc};
 use comfy_table::{ContentArrangement, Table};
 
 use crate::discover::{InstalledPackage, PackageSource};
-use crate::report::{ContributionMap, lookup_contributions};
+use crate::enrich::EnrichmentMap;
+use crate::report::{ContributionMap, lookup_contributions, lookup_enrichment};
 
 /// Sort packages alphabetically by name (case-insensitive), then by source.
 pub fn sort_packages(packages: &mut [InstalledPackage]) {
@@ -158,6 +159,7 @@ pub fn print_summary(
     limit: usize,
     timestamp: DateTime<Utc>,
     contributions: &ContributionMap,
+    enrichment: &EnrichmentMap,
 ) {
     if packages.is_empty() {
         println!("No packages found.");
@@ -222,6 +224,10 @@ pub fn print_summary(
         );
     }
 
+    if !enrichment.is_empty() {
+        println!("Enriched projects:      {}", enrichment.len());
+    }
+
     println!();
 
     let (page, remaining) = paginate(&groups, limit);
@@ -232,13 +238,20 @@ pub fn print_summary(
 
     for group in page {
         let url_display;
-        let url_cell = if group.url.is_empty() {
-            "(no project URL)"
+        let base_url = if group.url.is_empty() {
+            "(no project URL)".to_string()
         } else if !group.project_urls.is_empty() {
-            url_display = format!("{}/*", group.url);
+            format!("{}/*", group.url)
+        } else {
+            group.url.clone()
+        };
+        let enriched = lookup_enrichment(&group.url, &group.project_urls, enrichment);
+        let url_cell = if let Some(stars) = enriched.and_then(|e| e.stars) {
+            url_display = format!("{base_url} (\u{2605} {stars})");
             &url_display
         } else {
-            &group.url
+            url_display = base_url;
+            &url_display
         };
         let pkg_names: Vec<_> = group
             .packages
@@ -290,6 +303,44 @@ pub fn print_summary(
             }
 
             println!("{help_table}");
+        }
+    }
+
+    // Funding section
+    if !enrichment.is_empty() {
+        let mut funding_rows: Vec<(&str, Vec<String>)> = Vec::new();
+
+        for group in &groups {
+            if group.url.is_empty() {
+                continue;
+            }
+            if let Some(proj) = lookup_enrichment(&group.url, &group.project_urls, enrichment)
+                && !proj.funding.is_empty()
+            {
+                let labels: Vec<String> = proj
+                    .funding
+                    .iter()
+                    .map(|f| format!("{}: {}", f.platform, f.url))
+                    .collect();
+                funding_rows.push((&group.url, labels));
+            }
+        }
+
+        if !funding_rows.is_empty() {
+            println!();
+            println!("Funding");
+            println!();
+
+            let mut funding_table = Table::new();
+            funding_table.set_content_arrangement(ContentArrangement::Dynamic);
+            funding_table.set_header(vec!["Project", "Funding Links"]);
+
+            for (url, labels) in &funding_rows {
+                let joined = labels.join("\n");
+                funding_table.add_row(vec![*url, &joined]);
+            }
+
+            println!("{funding_table}");
         }
     }
 }

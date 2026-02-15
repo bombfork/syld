@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 
 use syld::config::Config;
 use syld::discover;
+use syld::enrich::EnrichmentMap;
 use syld::report::{ContributionMap, html, json, terminal};
 use syld::storage::Storage;
 
@@ -158,6 +159,7 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
         limit,
         chrono::Utc::now(),
         &ContributionMap::new(),
+        &EnrichmentMap::new(),
     );
 
     Ok(())
@@ -183,21 +185,19 @@ fn cmd_report(config: &Config, format: &ReportFormat, enrich: bool) -> Result<()
     } else {
         syld::enrich::EnrichmentMap::new()
     };
-    let _ = &enrichment; // used below in report rendering
-
     let contributions = ContributionMap::new();
 
     match format {
         ReportFormat::Terminal => {
             let mut packages = scan.packages;
             terminal::sort_packages(&mut packages);
-            terminal::print_summary(&packages, 0, scan.timestamp, &contributions);
+            terminal::print_summary(&packages, 0, scan.timestamp, &contributions, &enrichment);
         }
         ReportFormat::Json => {
-            json::print_json(&scan.packages, scan.timestamp, &contributions)?;
+            json::print_json(&scan.packages, scan.timestamp, &contributions, &enrichment)?;
         }
         ReportFormat::Html => {
-            html::print_html(&scan.packages, scan.timestamp, &contributions);
+            html::print_html(&scan.packages, scan.timestamp, &contributions, &enrichment);
         }
     }
 
