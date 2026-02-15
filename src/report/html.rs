@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 
 use crate::discover::{InstalledPackage, PackageSource};
 use crate::report::terminal::{group_by_project, sort_packages};
+use crate::report::{ContributionMap, lookup_contributions};
 
 /// Escape HTML special characters.
 fn escape_html(s: &str) -> String {
@@ -32,7 +33,11 @@ fn format_package_html(pkg: &InstalledPackage, show_badge: bool) -> String {
 }
 
 /// Generate an HTML report and print it to stdout.
-pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
+pub fn print_html(
+    packages: &[InstalledPackage],
+    timestamp: DateTime<Utc>,
+    contributions: &ContributionMap,
+) {
     let mut sorted = packages.to_vec();
     sort_packages(&mut sorted);
 
@@ -90,6 +95,21 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
         without_url_count
     ));
 
+    if !contributions.is_empty() {
+        let projects_with_contribs = groups
+            .iter()
+            .filter(|g| {
+                !g.url.is_empty()
+                    && !lookup_contributions(&g.url, &g.project_urls, contributions).is_empty()
+            })
+            .count();
+        let total_opps: usize = contributions.values().map(|v| v.len()).sum();
+        html.push_str(&format!(
+            "<p class=\"meta\">Projects with contributions: {} ({} opportunities)</p>\n",
+            projects_with_contribs, total_opps
+        ));
+    }
+
     // Source summary
     html.push_str("<h2>Sources</h2>\n");
     html.push_str("<table>\n<tr><th>Source</th><th>Packages</th></tr>\n");
@@ -133,6 +153,43 @@ pub fn print_html(packages: &[InstalledPackage], timestamp: DateTime<Utc>) {
         }
 
         html.push_str("</table>\n");
+    }
+
+    // Ways to Help section
+    if !contributions.is_empty() {
+        let mut has_any = false;
+
+        for group in &groups {
+            if group.url.is_empty() {
+                continue;
+            }
+            let opps = lookup_contributions(&group.url, &group.project_urls, contributions);
+            if opps.is_empty() {
+                continue;
+            }
+
+            if !has_any {
+                html.push_str("<h2>Ways to Help</h2>\n");
+                html.push_str(
+                    "<table>\n<tr><th>Project</th><th>Type</th><th>Opportunity</th></tr>\n",
+                );
+                has_any = true;
+            }
+
+            for opp in &opps {
+                html.push_str(&format!(
+                    "<tr><td>{}</td><td>{}</td><td><a href=\"{}\">{}</a></td></tr>\n",
+                    escape_html(&group.url),
+                    escape_html(&opp.kind.to_string()),
+                    escape_html(&opp.url),
+                    escape_html(&opp.title),
+                ));
+            }
+        }
+
+        if has_any {
+            html.push_str("</table>\n");
+        }
     }
 
     html.push_str("</body>\n</html>\n");

@@ -4,7 +4,7 @@
   "title": "syld JSON Report",
   "description": "Schema for the JSON report produced by `syld report --format json`, containing a timestamped inventory of installed packages and their license information.",
   "type": "object",
-  "required": ["scan_timestamp", "total_packages", "total_projects", "packages_without_url", "projects", "packages"],
+  "required": ["scan_timestamp", "total_packages", "total_projects", "packages_without_url", "projects_with_contributions", "total_contribution_opportunities", "projects", "packages"],
   "additionalProperties": false,
   "properties": {
     "scan_timestamp": {
@@ -26,6 +26,16 @@
       "type": "integer",
       "minimum": 0,
       "description": "Number of packages that have no upstream project URL."
+    },
+    "projects_with_contributions": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of projects that have at least one contribution opportunity."
+    },
+    "total_contribution_opportunities": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total number of contribution opportunities across all projects."
     },
     "projects": {
       "type": "array",
@@ -86,6 +96,40 @@
           "type": ["integer", "null"],
           "minimum": 0,
           "description": "Star/favorite count (e.g. GitHub stars), or null if unavailable."
+        },
+        "contributions": {
+          "type": "array",
+          "description": "Contribution opportunities for this project. Omitted when empty.",
+          "items": {
+            "$ref": "#/$defs/contribution_opportunity"
+          }
+        }
+      }
+    },
+    "contribution_opportunity": {
+      "type": "object",
+      "title": "ContributionOpportunity",
+      "description": "A concrete opportunity to contribute to an upstream project.",
+      "required": ["kind", "title", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["Star", "GoodFirstIssue", "BugReport", "Translation", "Documentation", "SpreadTheWord"],
+          "description": "The type of contribution."
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable title for this opportunity."
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Optional longer description or context."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL the user can visit to act on this opportunity."
         }
       }
     },

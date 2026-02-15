@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use comfy_table::{ContentArrangement, Table};
 
 use crate::discover::{InstalledPackage, PackageSource};
+use crate::report::{ContributionMap, lookup_contributions};
 
 /// Sort packages alphabetically by name (case-insensitive), then by source.
 pub fn sort_packages(packages: &mut [InstalledPackage]) {
@@ -152,7 +153,12 @@ fn format_package_terminal(pkg: &InstalledPackage, show_source: bool) -> String 
 /// Print a summary of discovered packages to the terminal.
 ///
 /// `limit` controls how many project groups to display (0 = all).
-pub fn print_summary(packages: &[InstalledPackage], limit: usize, timestamp: DateTime<Utc>) {
+pub fn print_summary(
+    packages: &[InstalledPackage],
+    limit: usize,
+    timestamp: DateTime<Utc>,
+    contributions: &ContributionMap,
+) {
     if packages.is_empty() {
         println!("No packages found.");
         return;
@@ -200,6 +206,22 @@ pub fn print_summary(packages: &[InstalledPackage], limit: usize, timestamp: Dat
     println!("Total packages:         {}", packages.len());
     println!("Upstream projects:      {}", with_url_count);
     println!("Packages without URL:   {}", without_url_count);
+
+    if !contributions.is_empty() {
+        let projects_with_contribs = groups
+            .iter()
+            .filter(|g| {
+                !g.url.is_empty()
+                    && !lookup_contributions(&g.url, &g.project_urls, contributions).is_empty()
+            })
+            .count();
+        let total_opps: usize = contributions.values().map(|v| v.len()).sum();
+        println!(
+            "Projects with contributions: {} ({} opportunities)",
+            projects_with_contribs, total_opps
+        );
+    }
+
     println!();
 
     let (page, remaining) = paginate(&groups, limit);
@@ -233,6 +255,42 @@ pub fn print_summary(packages: &[InstalledPackage], limit: usize, timestamp: Dat
             "\n  ... and {} more projects (use --limit 0 to show all)",
             remaining
         );
+    }
+
+    // Ways to Help section
+    if !contributions.is_empty() {
+        let mut contribution_rows: Vec<(&str, Vec<String>)> = Vec::new();
+
+        for group in &groups {
+            if group.url.is_empty() {
+                continue;
+            }
+            let opps = lookup_contributions(&group.url, &group.project_urls, contributions);
+            if !opps.is_empty() {
+                let labels: Vec<String> = opps
+                    .iter()
+                    .map(|o| format!("{}: {}", o.kind, o.title))
+                    .collect();
+                contribution_rows.push((&group.url, labels));
+            }
+        }
+
+        if !contribution_rows.is_empty() {
+            println!();
+            println!("Ways to Help");
+            println!();
+
+            let mut help_table = Table::new();
+            help_table.set_content_arrangement(ContentArrangement::Dynamic);
+            help_table.set_header(vec!["Project", "Opportunities"]);
+
+            for (url, labels) in &contribution_rows {
+                let joined = labels.join("\n");
+                help_table.add_row(vec![*url, &joined]);
+            }
+
+            println!("{help_table}");
+        }
     }
 }
 
