@@ -16,6 +16,10 @@ pub struct Config {
     /// Whether to enable network-based enrichment by default
     #[serde(default)]
     pub enrich: bool,
+
+    /// Number of parallel enrichment threads (default: 4)
+    #[serde(default)]
+    pub enrich_jobs: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -102,6 +106,7 @@ mod tests {
     fn parse_full_config() {
         let toml = r#"
 enrich = true
+enrich_jobs = 8
 
 [budget]
 amount = 10.0
@@ -110,6 +115,7 @@ cadence = "yearly"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.enrich);
+        assert_eq!(config.enrich_jobs, Some(8));
         assert_eq!(config.budget.amount, Some(10.0));
         assert_eq!(config.budget.currency, "EUR");
         assert!(matches!(config.budget.cadence, Cadence::Yearly));
@@ -119,6 +125,7 @@ cadence = "yearly"
     fn parse_empty_config() {
         let config: Config = toml::from_str("").unwrap();
         assert!(!config.enrich);
+        assert_eq!(config.enrich_jobs, None);
         assert_eq!(config.budget.amount, None);
         assert_eq!(config.budget.currency, "USD");
         assert!(matches!(config.budget.cadence, Cadence::Monthly));

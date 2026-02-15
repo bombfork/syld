@@ -506,6 +506,26 @@ impl Storage {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Clear all cached data: enrichment cache, packages, and scans.
+    ///
+    /// Deletes in FK-safe order (packages before scans).
+    /// Returns `(enrichment_count, packages_count, scans_count)`.
+    pub fn clear_cache(&self) -> Result<(usize, usize, usize)> {
+        let enrichment = self
+            .conn
+            .execute("DELETE FROM enrichment_cache", [])
+            .context("Failed to clear enrichment cache")?;
+        let packages = self
+            .conn
+            .execute("DELETE FROM packages", [])
+            .context("Failed to clear packages")?;
+        let scans = self
+            .conn
+            .execute("DELETE FROM scans", [])
+            .context("Failed to clear scans")?;
+        Ok((enrichment, packages, scans))
+    }
+
     /// Get all donations since a given timestamp.
     pub fn donations_since(&self, since: DateTime<Utc>) -> Result<Vec<DonationRecord>> {
         let mut stmt = self.conn.prepare(
@@ -1137,6 +1157,57 @@ mod tests {
             .donations_since(Utc::now() - Duration::days(30))
             .unwrap();
         assert!(donations.is_empty());
+    }
+
+    // --- Clear cache tests ---
+
+    #[test]
+    fn clear_cache_empty() {
+        let storage = open_memory();
+        let (enrichment, packages, scans) = storage.clear_cache().unwrap();
+        assert_eq!(enrichment, 0);
+        assert_eq!(packages, 0);
+        assert_eq!(scans, 0);
+    }
+
+    #[test]
+    fn clear_cache_removes_all_data() {
+        let storage = open_memory();
+
+        // Add scan data
+        storage.save_scan(&sample_packages()).unwrap();
+
+        // Add enrichment data
+        let project = UpstreamProject {
+            name: "Test".to_string(),
+            repo_url: None,
+            homepage: None,
+            licenses: vec![],
+            funding: vec![],
+            bug_tracker: None,
+            contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
+        };
+        storage
+            .save_enrichment("https://a.example.org", &project)
+            .unwrap();
+
+        let (enrichment, packages, scans) = storage.clear_cache().unwrap();
+        assert_eq!(enrichment, 1);
+        assert_eq!(packages, 2); // sample_packages() has 2
+        assert_eq!(scans, 1);
+
+        // Verify everything is gone
+        assert!(storage.latest_scan().unwrap().is_none());
+        assert!(
+            storage
+                .get_enrichment("https://a.example.org")
+                .unwrap()
+                .is_none()
+        );
     }
 
     // --- Backward-compatible deserialization test ---

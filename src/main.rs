@@ -42,6 +42,20 @@ enum Commands {
         /// Fetch additional info from the network (donation links, etc.)
         #[arg(long)]
         enrich: bool,
+
+        /// Force re-enrichment, bypassing the cache (implies --enrich)
+        #[arg(long)]
+        force_enrich: bool,
+
+        /// Number of parallel enrichment threads
+        #[arg(short = 'j', long)]
+        jobs: Option<usize>,
+    },
+
+    /// Manage the local cache
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommands,
     },
 
     /// Manage your support budget
@@ -100,6 +114,12 @@ enum AllocationStrategy {
 }
 
 #[derive(Subcommand)]
+enum CacheCommands {
+    /// Clear the enrichment cache
+    Clear,
+}
+
+#[derive(Subcommand)]
 enum ConfigCommands {
     /// Show current configuration
     Show,
@@ -115,7 +135,13 @@ fn main() -> Result<()> {
     match cli.command {
         None => cmd_scan(&config, 20),
         Some(Commands::Scan { limit }) => cmd_scan(&config, limit),
-        Some(Commands::Report { format, enrich }) => cmd_report(&config, &format, enrich),
+        Some(Commands::Report {
+            format,
+            enrich,
+            force_enrich,
+            jobs,
+        }) => cmd_report(&config, &format, enrich, force_enrich, jobs),
+        Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
     }
@@ -165,7 +191,13 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
     Ok(())
 }
 
-fn cmd_report(config: &Config, format: &ReportFormat, enrich: bool) -> Result<()> {
+fn cmd_report(
+    config: &Config,
+    format: &ReportFormat,
+    enrich: bool,
+    force_enrich: bool,
+    jobs: Option<usize>,
+) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     let scan = storage
         .latest_scan()
@@ -180,8 +212,9 @@ fn cmd_report(config: &Config, format: &ReportFormat, enrich: bool) -> Result<()
     };
 
     // Run enrichment if requested via CLI flag or config
-    let enrichment = if enrich || config.enrich {
-        syld::enrich::enrich_packages(&scan.packages, &storage, config)?
+    // --force-enrich implies --enrich
+    let enrichment = if enrich || force_enrich || config.enrich {
+        syld::enrich::enrich_packages(&scan.packages, &storage, config, force_enrich, jobs)?
     } else {
         syld::enrich::EnrichmentMap::new()
     };
@@ -202,6 +235,17 @@ fn cmd_report(config: &Config, format: &ReportFormat, enrich: bool) -> Result<()
     }
 
     Ok(())
+}
+
+fn cmd_cache(command: &CacheCommands) -> Result<()> {
+    match command {
+        CacheCommands::Clear => {
+            let storage = Storage::open().context("Failed to open database")?;
+            storage.clear_cache()?;
+            eprintln!("Cache cleared. Run `syld scan` to rebuild.");
+            Ok(())
+        }
+    }
 }
 
 fn cmd_budget(_config: &Config, _command: &BudgetCommands) -> Result<()> {
