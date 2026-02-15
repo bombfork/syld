@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use syld::config::Config;
-use syld::discover;
+use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
 use syld::report::{ContributionMap, html, json, terminal};
 use syld::storage::Storage;
@@ -147,12 +147,12 @@ fn main() -> Result<()> {
     }
 }
 
-fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
+fn run_scan(config: &Config) -> Result<Vec<InstalledPackage>> {
     let discoverers = discover::active_discoverers(config);
 
     if discoverers.is_empty() {
         eprintln!("No supported package managers detected on this system.");
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     let mut all_packages = Vec::new();
@@ -178,6 +178,12 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
         },
         Err(e) => eprintln!("Warning: failed to open database: {e}"),
     }
+
+    Ok(all_packages)
+}
+
+fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
+    let mut all_packages = run_scan(config)?;
 
     terminal::sort_packages(&mut all_packages);
     terminal::print_summary(
@@ -206,8 +212,18 @@ fn cmd_report(
     let scan = match scan {
         Some(s) => s,
         None => {
-            eprintln!("No scan data found. Run `syld scan` first.");
-            return Ok(());
+            eprintln!("No previous scan found. Running scan first\u{2026}");
+            run_scan(config)?;
+            let fresh = storage
+                .latest_scan()
+                .context("Failed to read scan after auto-scan")?;
+            match fresh {
+                Some(s) => s,
+                None => {
+                    eprintln!("Scan completed but no data was saved.");
+                    return Ok(());
+                }
+            }
         }
     };
 
