@@ -506,13 +506,24 @@ impl Storage {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Clear the enrichment cache, returning the number of rows deleted.
-    pub fn clear_enrichment_cache(&self) -> Result<usize> {
-        let count = self
+    /// Clear all cached data: enrichment cache, packages, and scans.
+    ///
+    /// Deletes in FK-safe order (packages before scans).
+    /// Returns `(enrichment_count, packages_count, scans_count)`.
+    pub fn clear_cache(&self) -> Result<(usize, usize, usize)> {
+        let enrichment = self
             .conn
             .execute("DELETE FROM enrichment_cache", [])
             .context("Failed to clear enrichment cache")?;
-        Ok(count)
+        let packages = self
+            .conn
+            .execute("DELETE FROM packages", [])
+            .context("Failed to clear packages")?;
+        let scans = self
+            .conn
+            .execute("DELETE FROM scans", [])
+            .context("Failed to clear scans")?;
+        Ok((enrichment, packages, scans))
     }
 
     /// Get all donations since a given timestamp.
@@ -1148,18 +1159,25 @@ mod tests {
         assert!(donations.is_empty());
     }
 
-    // --- Clear enrichment cache tests ---
+    // --- Clear cache tests ---
 
     #[test]
-    fn clear_enrichment_cache_empty() {
+    fn clear_cache_empty() {
         let storage = open_memory();
-        let count = storage.clear_enrichment_cache().unwrap();
-        assert_eq!(count, 0);
+        let (enrichment, packages, scans) = storage.clear_cache().unwrap();
+        assert_eq!(enrichment, 0);
+        assert_eq!(packages, 0);
+        assert_eq!(scans, 0);
     }
 
     #[test]
-    fn clear_enrichment_cache_removes_entries() {
+    fn clear_cache_removes_all_data() {
         let storage = open_memory();
+
+        // Add scan data
+        storage.save_scan(&sample_packages()).unwrap();
+
+        // Add enrichment data
         let project = UpstreamProject {
             name: "Test".to_string(),
             repo_url: None,
@@ -1173,27 +1191,20 @@ mod tests {
             good_first_issues_url: None,
             stars: None,
         };
-
         storage
             .save_enrichment("https://a.example.org", &project)
             .unwrap();
-        storage
-            .save_enrichment("https://b.example.org", &project)
-            .unwrap();
 
-        let count = storage.clear_enrichment_cache().unwrap();
-        assert_eq!(count, 2);
+        let (enrichment, packages, scans) = storage.clear_cache().unwrap();
+        assert_eq!(enrichment, 1);
+        assert_eq!(packages, 2); // sample_packages() has 2
+        assert_eq!(scans, 1);
 
-        // Verify cache is empty
+        // Verify everything is gone
+        assert!(storage.latest_scan().unwrap().is_none());
         assert!(
             storage
                 .get_enrichment("https://a.example.org")
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            storage
-                .get_enrichment("https://b.example.org")
                 .unwrap()
                 .is_none()
         );

@@ -241,8 +241,10 @@ fn cmd_cache(command: &CacheCommands) -> Result<()> {
     match command {
         CacheCommands::Clear => {
             let storage = Storage::open().context("Failed to open database")?;
-            let count = storage.clear_enrichment_cache()?;
-            eprintln!("Cleared {count} cached enrichment entries.");
+            let (enrichment, packages, scans) = storage.clear_cache()?;
+            eprintln!(
+                "Cleared {enrichment} cached enrichment entries, {packages} packages, {scans} scans."
+            );
             Ok(())
         }
     }
