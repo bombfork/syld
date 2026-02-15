@@ -6,8 +6,10 @@ use serde::Serialize;
 
 use crate::contribute::ContributionOpportunity;
 use crate::discover::InstalledPackage;
+use crate::enrich::EnrichmentMap;
+use crate::project::FundingChannel;
 use crate::report::terminal::group_by_project;
-use crate::report::{ContributionMap, lookup_contributions};
+use crate::report::{ContributionMap, lookup_contributions, lookup_enrichment};
 
 /// A grouped upstream project for the JSON report.
 #[derive(Serialize)]
@@ -19,6 +21,15 @@ pub struct JsonProject {
     pub project_urls: Vec<String>,
     /// Names of all packages that belong to this group.
     pub package_names: Vec<String>,
+    /// Funding channels for this project.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub funding: Vec<FundingChannel>,
+    /// Star/favorite count (e.g. GitHub stars).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stars: Option<u64>,
+    /// Whether the project is open source.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_open_source: Option<bool>,
     /// Contribution opportunities for this project.
     /// Empty when no contribution data is available.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -43,6 +54,7 @@ pub fn print_json(
     packages: &[InstalledPackage],
     timestamp: DateTime<Utc>,
     contributions: &ContributionMap,
+    enrichment: &EnrichmentMap,
 ) -> Result<()> {
     let groups = group_by_project(packages);
     let total_projects = groups.iter().filter(|g| !g.url.is_empty()).count();
@@ -57,10 +69,14 @@ pub fn print_json(
             package_names.sort();
             let project_contributions =
                 lookup_contributions(&g.url, &g.project_urls, contributions);
+            let enriched = lookup_enrichment(&g.url, &g.project_urls, enrichment);
             JsonProject {
                 url: g.url.clone(),
                 project_urls: g.project_urls.clone(),
                 package_names,
+                funding: enriched.map(|e| e.funding.clone()).unwrap_or_default(),
+                stars: enriched.and_then(|e| e.stars),
+                is_open_source: enriched.and_then(|e| e.is_open_source),
                 contributions: project_contributions,
             }
         })
@@ -132,12 +148,18 @@ mod tests {
                     url: "kernel.org".to_string(),
                     project_urls: vec![],
                     package_names: vec!["linux".to_string()],
+                    funding: vec![],
+                    stars: None,
+                    is_open_source: None,
                     contributions: vec![],
                 },
                 JsonProject {
                     url: "mozilla.org/firefox".to_string(),
                     project_urls: vec![],
                     package_names: vec!["firefox".to_string()],
+                    funding: vec![],
+                    stars: None,
+                    is_open_source: None,
                     contributions: vec![],
                 },
             ],
@@ -242,12 +264,18 @@ mod tests {
                     url: "kernel.org".to_string(),
                     project_urls: vec![],
                     package_names: vec!["linux".to_string()],
+                    funding: vec![],
+                    stars: None,
+                    is_open_source: None,
                     contributions: vec![],
                 },
                 JsonProject {
                     url: "mozilla.org/firefox".to_string(),
                     project_urls: vec![],
                     package_names: vec!["firefox".to_string()],
+                    funding: vec![],
+                    stars: None,
+                    is_open_source: None,
                     contributions: vec![],
                 },
             ],
@@ -335,6 +363,9 @@ mod tests {
                     url: "kernel.org".to_string(),
                     project_urls: vec![],
                     package_names: vec!["linux".to_string()],
+                    funding: vec![],
+                    stars: None,
+                    is_open_source: None,
                     contributions: vec![
                         ContributionOpportunity {
                             kind: ContributionKind::GoodFirstIssue,
@@ -354,6 +385,9 @@ mod tests {
                     url: "mozilla.org/firefox".to_string(),
                     project_urls: vec![],
                     package_names: vec!["firefox".to_string()],
+                    funding: vec![],
+                    stars: None,
+                    is_open_source: None,
                     contributions: vec![],
                 },
             ],
@@ -396,6 +430,9 @@ mod tests {
                 url: "kernel.org".to_string(),
                 project_urls: vec![],
                 package_names: vec!["linux".to_string()],
+                funding: vec![],
+                stars: None,
+                is_open_source: None,
                 contributions: vec![ContributionOpportunity {
                     kind: ContributionKind::GoodFirstIssue,
                     title: "Fix bug".to_string(),
@@ -433,7 +470,8 @@ mod tests {
         );
 
         // Just verify it doesn't panic — output goes to stdout
-        let result = print_json(&packages, timestamp, &contributions);
+        let enrichment = EnrichmentMap::new();
+        let result = print_json(&packages, timestamp, &contributions, &enrichment);
         assert!(result.is_ok());
     }
 
@@ -442,8 +480,9 @@ mod tests {
         let packages = sample_packages();
         let timestamp = "2025-01-15T10:30:00Z".parse::<DateTime<Utc>>().unwrap();
         let contributions = ContributionMap::new();
+        let enrichment = EnrichmentMap::new();
 
-        let result = print_json(&packages, timestamp, &contributions);
+        let result = print_json(&packages, timestamp, &contributions, &enrichment);
         assert!(result.is_ok());
     }
 }

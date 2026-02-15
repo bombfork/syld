@@ -78,6 +78,13 @@
             "type": "string"
           }
         },
+        "funding": {
+          "type": "array",
+          "description": "Funding channels for this project. Omitted when empty.",
+          "items": {
+            "$ref": "#/$defs/funding_channel"
+          }
+        },
         "is_open_source": {
           "type": ["boolean", "null"],
           "description": "Whether the project is open source (resolved from license analysis). Null if unknown."
@@ -103,6 +110,24 @@
           "items": {
             "$ref": "#/$defs/contribution_opportunity"
           }
+        }
+      }
+    },
+    "funding_channel": {
+      "type": "object",
+      "title": "FundingChannel",
+      "description": "A funding or donation channel for an upstream project.",
+      "required": ["platform", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "platform": {
+          "type": "string",
+          "description": "The funding platform name (e.g. GitHub Sponsors, Open Collective, Patreon)."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL to the project's funding page on this platform."
         }
       }
     },

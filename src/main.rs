@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 
 use syld::config::Config;
 use syld::discover;
+use syld::enrich::EnrichmentMap;
 use syld::report::{ContributionMap, html, json, terminal};
 use syld::storage::Storage;
 
@@ -114,7 +115,7 @@ fn main() -> Result<()> {
     match cli.command {
         None => cmd_scan(&config, 20),
         Some(Commands::Scan { limit }) => cmd_scan(&config, limit),
-        Some(Commands::Report { format, enrich: _ }) => cmd_report(&config, &format),
+        Some(Commands::Report { format, enrich }) => cmd_report(&config, &format, enrich),
         Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
     }
@@ -158,12 +159,13 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
         limit,
         chrono::Utc::now(),
         &ContributionMap::new(),
+        &EnrichmentMap::new(),
     );
 
     Ok(())
 }
 
-fn cmd_report(_config: &Config, format: &ReportFormat) -> Result<()> {
+fn cmd_report(config: &Config, format: &ReportFormat, enrich: bool) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     let scan = storage
         .latest_scan()
@@ -177,19 +179,25 @@ fn cmd_report(_config: &Config, format: &ReportFormat) -> Result<()> {
         }
     };
 
+    // Run enrichment if requested via CLI flag or config
+    let enrichment = if enrich || config.enrich {
+        syld::enrich::enrich_packages(&scan.packages, &storage, config)?
+    } else {
+        syld::enrich::EnrichmentMap::new()
+    };
     let contributions = ContributionMap::new();
 
     match format {
         ReportFormat::Terminal => {
             let mut packages = scan.packages;
             terminal::sort_packages(&mut packages);
-            terminal::print_summary(&packages, 0, scan.timestamp, &contributions);
+            terminal::print_summary(&packages, 0, scan.timestamp, &contributions, &enrichment);
         }
         ReportFormat::Json => {
-            json::print_json(&scan.packages, scan.timestamp, &contributions)?;
+            json::print_json(&scan.packages, scan.timestamp, &contributions, &enrichment)?;
         }
         ReportFormat::Html => {
-            html::print_html(&scan.packages, scan.timestamp, &contributions);
+            html::print_html(&scan.packages, scan.timestamp, &contributions, &enrichment);
         }
     }
 

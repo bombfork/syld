@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 
 use crate::discover::{InstalledPackage, PackageSource};
+use crate::enrich::EnrichmentMap;
 use crate::report::terminal::{group_by_project, sort_packages};
-use crate::report::{ContributionMap, lookup_contributions};
+use crate::report::{ContributionMap, lookup_contributions, lookup_enrichment};
 
 /// Escape HTML special characters.
 fn escape_html(s: &str) -> String {
@@ -37,6 +38,7 @@ pub fn print_html(
     packages: &[InstalledPackage],
     timestamp: DateTime<Utc>,
     contributions: &ContributionMap,
+    enrichment: &EnrichmentMap,
 ) {
     let mut sorted = packages.to_vec();
     sort_packages(&mut sorted);
@@ -188,6 +190,49 @@ pub fn print_html(
         }
 
         if has_any {
+            html.push_str("</table>\n");
+        }
+    }
+
+    // Funding section
+    if !enrichment.is_empty() {
+        let mut has_any_funding = false;
+
+        for group in &groups {
+            if group.url.is_empty() {
+                continue;
+            }
+            let proj = lookup_enrichment(&group.url, &group.project_urls, enrichment);
+            let funding = match proj {
+                Some(p) if !p.funding.is_empty() => &p.funding,
+                _ => continue,
+            };
+
+            if !has_any_funding {
+                html.push_str("<h2>Funding</h2>\n");
+                html.push_str("<table>\n<tr><th>Project</th><th>Funding Links</th></tr>\n");
+                has_any_funding = true;
+            }
+
+            let links: Vec<String> = funding
+                .iter()
+                .map(|f| {
+                    format!(
+                        "{}: <a href=\"{}\">{}</a>",
+                        escape_html(&f.platform),
+                        escape_html(&f.url),
+                        escape_html(&f.url),
+                    )
+                })
+                .collect();
+            html.push_str(&format!(
+                "<tr><td>{}</td><td>{}</td></tr>\n",
+                escape_html(&group.url),
+                links.join("<br>"),
+            ));
+        }
+
+        if has_any_funding {
             html.push_str("</table>\n");
         }
     }
