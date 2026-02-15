@@ -114,7 +114,7 @@ fn main() -> Result<()> {
     match cli.command {
         None => cmd_scan(&config, 20),
         Some(Commands::Scan { limit }) => cmd_scan(&config, limit),
-        Some(Commands::Report { format, enrich: _ }) => cmd_report(&config, &format),
+        Some(Commands::Report { format, enrich }) => cmd_report(&config, &format, enrich),
         Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
     }
@@ -163,7 +163,7 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
     Ok(())
 }
 
-fn cmd_report(_config: &Config, format: &ReportFormat) -> Result<()> {
+fn cmd_report(config: &Config, format: &ReportFormat, enrich: bool) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     let scan = storage
         .latest_scan()
@@ -176,6 +176,14 @@ fn cmd_report(_config: &Config, format: &ReportFormat) -> Result<()> {
             return Ok(());
         }
     };
+
+    // Run enrichment if requested via CLI flag or config
+    let enrichment = if enrich || config.enrich {
+        syld::enrich::enrich_packages(&scan.packages, &storage, config)?
+    } else {
+        syld::enrich::EnrichmentMap::new()
+    };
+    let _ = &enrichment; // used below in report rendering
 
     let contributions = ContributionMap::new();
 

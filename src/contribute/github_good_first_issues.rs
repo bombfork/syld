@@ -129,7 +129,7 @@ impl ContributionBackend for GitHubGoodFirstIssuesBackend {
 /// - `git://github.com/owner/repo`
 ///
 /// Returns `None` if the URL is not a recognized GitHub URL.
-fn extract_github_owner_repo(url: &str) -> Option<String> {
+pub(crate) fn extract_github_owner_repo(url: &str) -> Option<String> {
     // SSH format: git@github.com:owner/repo.git
     if let Some(rest) = url.strip_prefix("git@github.com:") {
         let rest = rest.strip_suffix(".git").unwrap_or(rest);
