@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 
 use syld::config::Config;
 use syld::discover;
-use syld::report::{html, json, terminal};
+use syld::report::{ContributionMap, html, json, terminal};
 use syld::storage::Storage;
 
 #[derive(Parser)]
@@ -153,7 +153,12 @@ fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
     }
 
     terminal::sort_packages(&mut all_packages);
-    terminal::print_summary(&all_packages, limit, chrono::Utc::now());
+    terminal::print_summary(
+        &all_packages,
+        limit,
+        chrono::Utc::now(),
+        &ContributionMap::new(),
+    );
 
     Ok(())
 }
@@ -172,17 +177,19 @@ fn cmd_report(_config: &Config, format: &ReportFormat) -> Result<()> {
         }
     };
 
+    let contributions = ContributionMap::new();
+
     match format {
         ReportFormat::Terminal => {
             let mut packages = scan.packages;
             terminal::sort_packages(&mut packages);
-            terminal::print_summary(&packages, 0, scan.timestamp);
+            terminal::print_summary(&packages, 0, scan.timestamp, &contributions);
         }
         ReportFormat::Json => {
-            json::print_json(&scan.packages, scan.timestamp)?;
+            json::print_json(&scan.packages, scan.timestamp, &contributions)?;
         }
         ReportFormat::Html => {
-            html::print_html(&scan.packages, scan.timestamp);
+            html::print_html(&scan.packages, scan.timestamp, &contributions);
         }
     }
 
