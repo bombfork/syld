@@ -99,14 +99,16 @@ fn single_source_packages() -> Vec<InstalledPackage> {
 }
 
 #[test]
-fn report_no_scan_shows_message() {
+fn report_no_scan_runs_auto_scan() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
     syld_with_db(tmp.path(), data.path())
         .args(["report"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("No scan data found"));
+        .stderr(predicate::str::contains(
+            "No previous scan found. Running scan first",
+        ));
 }
 
 #[test]
