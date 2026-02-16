@@ -7,14 +7,12 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use syld::budget::{self, FundableGroup};
-use syld::config::{BudgetConfig, Cadence, Config};
+use syld::config::Config;
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
 use syld::hook::{self, HookContext};
 use syld::install;
-use syld::project::FundingChannel;
-use syld::report::{ContributionMap, html, json, lookup_enrichment, terminal};
+use syld::report::{ContributionMap, html, json, terminal};
 use syld::storage::Storage;
 
 #[derive(Parser)]
@@ -26,8 +24,7 @@ use syld::storage::Storage;
 Workflow:
   1. First time     syld setup
   2. Discover       syld scan
-  3. Review         syld report
-  4. Budget         syld budget set 10 && syld budget plan"
+  3. Review         syld report"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -68,12 +65,6 @@ enum Commands {
         command: CacheCommands,
     },
 
-    /// Manage your support budget
-    Budget {
-        #[command(subcommand)]
-        command: BudgetCommands,
-    },
-
     /// Show or edit configuration
     Config {
         #[command(subcommand)]
@@ -101,41 +92,6 @@ enum ReportFormat {
     Terminal,
     Json,
     Html,
-}
-
-#[derive(Subcommand)]
-enum BudgetCommands {
-    /// Set your monthly or yearly support budget
-    Set {
-        /// Amount in your local currency
-        amount: f64,
-
-        /// Budget cadence
-        #[arg(long, default_value = "monthly")]
-        cadence: BudgetCadence,
-    },
-
-    /// Generate a donation plan based on your budget
-    Plan {
-        /// Allocation strategy
-        #[arg(long, default_value = "equal")]
-        strategy: AllocationStrategy,
-    },
-
-    /// Show current budget settings
-    Show,
-}
-
-#[derive(Clone, clap::ValueEnum)]
-enum BudgetCadence {
-    Monthly,
-    Yearly,
-}
-
-#[derive(Clone, clap::ValueEnum)]
-enum AllocationStrategy {
-    Equal,
-    Weighted,
 }
 
 #[derive(Subcommand)]
@@ -207,7 +163,6 @@ fn main() -> Result<()> {
             jobs,
         }) => cmd_report(&config, &format, force_refresh, jobs),
         Some(Commands::Cache { command }) => cmd_cache(&command),
-        Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
         Some(Commands::Setup) => cmd_setup(&config),
@@ -345,216 +300,6 @@ fn cmd_cache(command: &CacheCommands) -> Result<()> {
     }
 }
 
-fn cmd_budget(config: &Config, command: &BudgetCommands) -> Result<()> {
-    match command {
-        BudgetCommands::Set { amount, cadence } => cmd_budget_set(config, *amount, cadence),
-        BudgetCommands::Show => cmd_budget_show(),
-        BudgetCommands::Plan { strategy } => cmd_budget_plan(config, strategy),
-    }
-}
-
-fn cmd_budget_set(config: &Config, amount: f64, cadence: &BudgetCadence) -> Result<()> {
-    let storage = Storage::open().context("Failed to open database")?;
-    let budget = BudgetConfig {
-        amount: Some(amount),
-        currency: config.budget.currency.clone(),
-        cadence: match cadence {
-            BudgetCadence::Monthly => Cadence::Monthly,
-            BudgetCadence::Yearly => Cadence::Yearly,
-        },
-    };
-    storage.save_budget(&budget)?;
-    let cadence_label = match cadence {
-        BudgetCadence::Monthly => "monthly",
-        BudgetCadence::Yearly => "yearly",
-    };
-    eprintln!(
-        "Budget set: {} {} {}",
-        budget.currency, amount, cadence_label
-    );
-    Ok(())
-}
-
-fn cmd_budget_show() -> Result<()> {
-    let storage = Storage::open().context("Failed to open database")?;
-    match storage.get_budget()? {
-        None => {
-            eprintln!("No budget configured. Use `syld budget set <amount>` to set one.");
-        }
-        Some(budget) => {
-            let cadence_label = match budget.cadence {
-                Cadence::Monthly => "monthly",
-                Cadence::Yearly => "yearly",
-            };
-            match budget.amount {
-                Some(amount) => {
-                    println!("{} {:.2} {}", budget.currency, amount, cadence_label);
-                }
-                None => {
-                    println!(
-                        "Budget configured but no amount set. Use `syld budget set <amount>`."
-                    );
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn cmd_budget_plan(config: &Config, strategy: &AllocationStrategy) -> Result<()> {
-    let storage = Storage::open().context("Failed to open database")?;
-
-    // Load budget
-    let budget = match storage.get_budget()? {
-        Some(b) if b.amount.is_some() => b,
-        _ => {
-            eprintln!("No budget configured. Use `syld budget set <amount>` first.");
-            return Ok(());
-        }
-    };
-
-    // Load latest scan; auto-scan if none
-    let scan = match storage.latest_scan()? {
-        Some(s) => s,
-        None => {
-            eprintln!("No previous scan found. Running scan first\u{2026}");
-            run_scan(config, true)?;
-            match storage.latest_scan()? {
-                Some(s) => s,
-                None => {
-                    eprintln!("Scan completed but no data was saved.");
-                    return Ok(());
-                }
-            }
-        }
-    };
-
-    // Try loading cached enrichment data for each package
-    let mut enrichment = EnrichmentMap::new();
-    for pkg in &scan.packages {
-        if let Some(url) = &pkg.url {
-            let normalized = terminal::normalize_url(url);
-            if !normalized.is_empty()
-                && let Ok(Some(proj)) = storage.get_enrichment(url)
-            {
-                enrichment.insert(normalized, proj);
-            }
-        }
-    }
-
-    // If no enrichment data found, auto-trigger enrichment
-    if enrichment.is_empty() {
-        eprintln!("No enrichment data found. Running enriched scan\u{2026}");
-        enrichment = syld::enrich::enrich_packages(&scan.packages, &storage, config, false, None)?;
-    }
-
-    // Group packages by org/ancestor
-    let groups = terminal::group_by_project(&scan.packages);
-
-    // Build fundable groups from those with funding channels
-    let mut fundable_groups: Vec<FundableGroup> = Vec::new();
-    for group in &groups {
-        if group.url.is_empty() {
-            continue;
-        }
-
-        let enriched = lookup_enrichment(&group.url, &group.project_urls, &enrichment);
-        let funding: Vec<FundingChannel> = enriched.map(|e| e.funding.clone()).unwrap_or_default();
-
-        if funding.is_empty() {
-            continue;
-        }
-
-        let total_stars: u64 = enriched.and_then(|e| e.stars).unwrap_or(0);
-
-        // Collect all enriched projects in this group
-        let mut projects = Vec::new();
-        if let Some(proj) = enriched {
-            projects.push(proj.clone());
-        }
-        // Also collect any per-child-url enrichments for ancestor groups
-        for child_url in &group.project_urls {
-            if let Some(proj) = enrichment.get(child_url.as_str())
-                && !projects
-                    .iter()
-                    .any(|p: &syld::project::UpstreamProject| p.repo_url == proj.repo_url)
-            {
-                projects.push(proj.clone());
-            }
-        }
-
-        let label = if group.project_urls.is_empty() {
-            group.url.clone()
-        } else {
-            format!("{}/*", group.url)
-        };
-
-        fundable_groups.push(FundableGroup {
-            label,
-            projects,
-            funding,
-            total_stars,
-        });
-    }
-
-    if fundable_groups.is_empty() {
-        eprintln!("No projects with funding channels found.");
-        eprintln!("Try running `syld report --enrich` to discover funding links.");
-        return Ok(());
-    }
-
-    let strat = match strategy {
-        AllocationStrategy::Equal => budget::AllocationStrategy::Equal,
-        AllocationStrategy::Weighted => budget::AllocationStrategy::Weighted,
-    };
-
-    let plan = budget::generate_plan(&budget, fundable_groups, strat);
-
-    // Display plan as a table
-    let cadence_label = match budget.cadence {
-        Cadence::Monthly => "monthly",
-        Cadence::Yearly => "yearly",
-    };
-
-    println!();
-    println!(
-        "Donation plan: {} {:.2} {}",
-        budget.currency,
-        budget.amount.unwrap_or(0.0),
-        cadence_label
-    );
-
-    let strategy_label = match strategy {
-        AllocationStrategy::Equal => "equal",
-        AllocationStrategy::Weighted => "weighted",
-    };
-    println!("Strategy: {strategy_label}");
-    println!();
-
-    let mut table = comfy_table::Table::new();
-    table.set_content_arrangement(comfy_table::ContentArrangement::Dynamic);
-    table.set_header(vec!["Project", "Amount", "Frequency", "Via"]);
-
-    for alloc in &plan.allocations {
-        let freq = if alloc.every_n_months == 1 {
-            "monthly".to_string()
-        } else {
-            format!("every {} months", alloc.every_n_months)
-        };
-        let via = alloc.via.as_deref().unwrap_or("-");
-        table.add_row(vec![
-            &alloc.project.name,
-            &format!("{} {:.2}", budget.currency, alloc.amount),
-            &freq,
-            via,
-        ]);
-    }
-
-    println!("{table}");
-
-    Ok(())
-}
-
 fn cmd_hook(config: &Config, command: &HookCommands) -> Result<()> {
     match command {
         HookCommands::Run { name } => cmd_hook_run(config, name),
@@ -645,27 +390,8 @@ fn cmd_config_set(key: &str, value: &str) -> Result<()> {
                     .with_context(|| format!("Invalid number '{value}'."))?,
             );
         }
-        "budget.amount" => {
-            config.budget.amount = Some(
-                value
-                    .parse::<f64>()
-                    .with_context(|| format!("Invalid number '{value}'."))?,
-            );
-        }
-        "budget.currency" => {
-            config.budget.currency = value.to_uppercase();
-        }
-        "budget.cadence" => {
-            config.budget.cadence = match value.to_lowercase().as_str() {
-                "monthly" => Cadence::Monthly,
-                "yearly" => Cadence::Yearly,
-                _ => anyhow::bail!("Invalid cadence '{value}'. Valid values: monthly, yearly."),
-            };
-        }
         _ => {
-            anyhow::bail!(
-                "Unknown config key '{key}'. Valid keys: enrich, enrich_jobs, budget.amount, budget.currency, budget.cadence"
-            );
+            anyhow::bail!("Unknown config key '{key}'. Valid keys: enrich, enrich_jobs");
         }
     }
 

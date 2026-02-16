@@ -174,51 +174,6 @@ fn config_set_enrich_jobs() {
 }
 
 #[test]
-fn config_set_budget_amount() {
-    let tmp = tempfile::tempdir().unwrap();
-    syld(tmp.path())
-        .args(["config", "set", "budget.amount", "25.50"])
-        .assert()
-        .success();
-
-    syld(tmp.path())
-        .args(["config", "show"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("amount = 25.5"));
-}
-
-#[test]
-fn config_set_budget_currency() {
-    let tmp = tempfile::tempdir().unwrap();
-    syld(tmp.path())
-        .args(["config", "set", "budget.currency", "eur"])
-        .assert()
-        .success();
-
-    syld(tmp.path())
-        .args(["config", "show"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("currency = \"EUR\""));
-}
-
-#[test]
-fn config_set_budget_cadence() {
-    let tmp = tempfile::tempdir().unwrap();
-    syld(tmp.path())
-        .args(["config", "set", "budget.cadence", "yearly"])
-        .assert()
-        .success();
-
-    syld(tmp.path())
-        .args(["config", "show"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("cadence = \"yearly\""));
-}
-
-#[test]
 fn config_set_unknown_key_fails() {
     let tmp = tempfile::tempdir().unwrap();
     syld(tmp.path())
@@ -250,29 +205,19 @@ fn config_set_invalid_number_fails() {
 }
 
 #[test]
-fn config_set_invalid_cadence_fails() {
-    let tmp = tempfile::tempdir().unwrap();
-    syld(tmp.path())
-        .args(["config", "set", "budget.cadence", "weekly"])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("Invalid cadence"));
-}
-
-#[test]
 fn config_set_preserves_other_values() {
     let tmp = tempfile::tempdir().unwrap();
     let config_dir = tmp.path().join("syld");
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("config.toml"),
-        "enrich = true\n\n[budget]\namount = 42.0\ncurrency = \"EUR\"\ncadence = \"yearly\"\n",
+        "enrich = true\nenrich_jobs = 8\n",
     )
     .unwrap();
 
-    // Set only budget.currency, everything else should survive
+    // Set only enrich_jobs, enrich should survive
     syld(tmp.path())
-        .args(["config", "set", "budget.currency", "GBP"])
+        .args(["config", "set", "enrich_jobs", "16"])
         .assert()
         .success();
 
@@ -281,9 +226,7 @@ fn config_set_preserves_other_values() {
         .assert()
         .success()
         .stdout(predicate::str::contains("enrich = true"))
-        .stdout(predicate::str::contains("amount = 42.0"))
-        .stdout(predicate::str::contains("currency = \"GBP\""))
-        .stdout(predicate::str::contains("cadence = \"yearly\""));
+        .stdout(predicate::str::contains("enrich_jobs = 16"));
 }
 
 #[test]

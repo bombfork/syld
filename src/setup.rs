@@ -3,9 +3,9 @@
 //! Interactive first-run setup wizard.
 
 use anyhow::{Context, Result};
-use dialoguer::{Confirm, Input, Select};
+use dialoguer::{Confirm, Select};
 
-use crate::config::{Cadence, Config};
+use crate::config::Config;
 use crate::install;
 
 /// Run the interactive setup wizard.
@@ -17,57 +17,14 @@ pub fn run_setup(config: &Config) -> Result<()> {
     eprintln!("── Configuration ──\n");
 
     let enrich = Confirm::new()
-        .with_prompt("Enable network enrichment? (fetches donation links, stars, etc.)")
+        .with_prompt("Enable network enrichment? (fetches project metadata, stars, etc.)")
         .default(config.enrich)
         .interact()
         .context("Failed to read enrichment preference")?;
 
-    let currency: String = Input::new()
-        .with_prompt("Budget currency code")
-        .default(config.budget.currency.clone())
-        .interact_text()
-        .context("Failed to read currency")?;
-
-    let cadence_options = ["monthly", "yearly"];
-    let cadence_default = match config.budget.cadence {
-        Cadence::Monthly => 0,
-        Cadence::Yearly => 1,
-    };
-    let cadence_idx = Select::new()
-        .with_prompt("Budget cadence")
-        .items(&cadence_options)
-        .default(cadence_default)
-        .interact()
-        .context("Failed to read cadence")?;
-    let cadence = match cadence_idx {
-        0 => Cadence::Monthly,
-        _ => Cadence::Yearly,
-    };
-
-    let set_amount = Confirm::new()
-        .with_prompt("Set a budget amount now?")
-        .default(config.budget.amount.is_some())
-        .interact()
-        .context("Failed to read budget preference")?;
-
-    let amount = if set_amount {
-        let default_amount = config.budget.amount.unwrap_or(5.0);
-        let amt: f64 = Input::new()
-            .with_prompt(format!("Budget amount ({currency})"))
-            .default(default_amount)
-            .interact_text()
-            .context("Failed to read budget amount")?;
-        Some(amt)
-    } else {
-        config.budget.amount
-    };
-
     // Save config
     let mut new_config = Config::load()?;
     new_config.enrich = enrich;
-    new_config.budget.currency = currency.to_uppercase();
-    new_config.budget.cadence = cadence;
-    new_config.budget.amount = amount;
     new_config.save()?;
     eprintln!("\nConfiguration saved.\n");
 
@@ -156,8 +113,7 @@ pub fn run_setup(config: &Config) -> Result<()> {
     }
 
     eprintln!("\nSetup complete! Next steps:");
-    eprintln!("  syld report      — review discovered packages");
-    eprintln!("  syld budget plan — generate a donation plan");
+    eprintln!("  syld report — review discovered packages");
 
     Ok(())
 }
