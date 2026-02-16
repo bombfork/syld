@@ -7,7 +7,9 @@ use chrono::{DateTime, Utc};
 use crate::discover::{InstalledPackage, PackageSource};
 use crate::enrich::EnrichmentMap;
 use crate::report::terminal::{group_by_project, sort_packages};
-use crate::report::{ContributionMap, lookup_contributions, lookup_enrichment};
+use crate::report::{
+    ContributionMap, ContributionSummary, lookup_contributions, lookup_enrichment,
+};
 
 /// Escape HTML special characters.
 fn escape_html(s: &str) -> String {
@@ -39,6 +41,7 @@ pub fn print_html(
     timestamp: DateTime<Utc>,
     contributions: &ContributionMap,
     enrichment: &EnrichmentMap,
+    contribution_summary: Option<&ContributionSummary>,
 ) {
     let mut sorted = packages.to_vec();
     sort_packages(&mut sorted);
@@ -192,6 +195,51 @@ pub fn print_html(
         if has_any {
             html.push_str("</table>\n");
         }
+    }
+
+    // Your Contributions section
+    if let Some(summary) = contribution_summary
+        && !summary.is_empty()
+    {
+        html.push_str("<h2>Your Contributions</h2>\n");
+        html.push_str("<ul>\n");
+        if summary.stars > 0 {
+            html.push_str(&format!("<li>{} projects starred</li>\n", summary.stars));
+        }
+        if summary.issues > 0 {
+            html.push_str(&format!("<li>{} issues filed</li>\n", summary.issues));
+        }
+        if summary.pull_requests > 0 {
+            html.push_str(&format!(
+                "<li>{} pull requests submitted</li>\n",
+                summary.pull_requests
+            ));
+        }
+        if summary.docs > 0 {
+            html.push_str(&format!(
+                "<li>{} documentation improvements</li>\n",
+                summary.docs
+            ));
+        }
+        if summary.donations > 0 {
+            if let (Some(total), Some(currency)) =
+                (summary.donation_total, &summary.donation_currency)
+            {
+                html.push_str(&format!(
+                    "<li>{} projects donated to ({} {:.2} total)</li>\n",
+                    summary.donations, currency, total
+                ));
+            } else {
+                html.push_str(&format!(
+                    "<li>{} projects donated to</li>\n",
+                    summary.donations
+                ));
+            }
+        }
+        if summary.other > 0 {
+            html.push_str(&format!("<li>{} other contributions</li>\n", summary.other));
+        }
+        html.push_str("</ul>\n");
     }
 
     // Funding section

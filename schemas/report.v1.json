@@ -50,6 +50,10 @@
       "items": {
         "$ref": "#/$defs/package"
       }
+    },
+    "contributions_summary": {
+      "$ref": "#/$defs/contributions_summary",
+      "description": "Aggregated summary of the user's contribution history. Omitted when there are no contributions."
     }
   },
   "$defs": {
@@ -155,6 +159,53 @@
           "type": "string",
           "format": "uri",
           "description": "URL the user can visit to act on this opportunity."
+        }
+      }
+    },
+    "contributions_summary": {
+      "type": "object",
+      "title": "ContributionSummary",
+      "description": "Aggregated summary of the user's contribution history.",
+      "required": ["stars", "issues", "pull_requests", "donations", "docs", "other"],
+      "additionalProperties": false,
+      "properties": {
+        "stars": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of projects starred."
+        },
+        "issues": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of issues filed."
+        },
+        "pull_requests": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of pull requests submitted."
+        },
+        "donations": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of projects donated to."
+        },
+        "donation_total": {
+          "type": ["number", "null"],
+          "description": "Total donation amount, or null if donations use mixed currencies."
+        },
+        "donation_currency": {
+          "type": ["string", "null"],
+          "description": "Currency of the donation total, or null if mixed."
+        },
+        "docs": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of documentation contributions."
+        },
+        "other": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of other contributions."
         }
       }
     },

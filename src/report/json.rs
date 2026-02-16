@@ -9,7 +9,9 @@ use crate::discover::InstalledPackage;
 use crate::enrich::EnrichmentMap;
 use crate::project::FundingChannel;
 use crate::report::terminal::group_by_project;
-use crate::report::{ContributionMap, lookup_contributions, lookup_enrichment};
+use crate::report::{
+    ContributionMap, ContributionSummary, lookup_contributions, lookup_enrichment,
+};
 
 /// A grouped upstream project for the JSON report.
 #[derive(Serialize)]
@@ -47,6 +49,8 @@ pub struct JsonReport {
     pub total_contribution_opportunities: usize,
     pub projects: Vec<JsonProject>,
     pub packages: Vec<InstalledPackage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contributions_summary: Option<ContributionSummary>,
 }
 
 /// Generate a JSON report and print it to stdout.
@@ -55,6 +59,7 @@ pub fn print_json(
     timestamp: DateTime<Utc>,
     contributions: &ContributionMap,
     enrichment: &EnrichmentMap,
+    contribution_summary: Option<ContributionSummary>,
 ) -> Result<()> {
     let groups = group_by_project(packages);
     let total_projects = groups.iter().filter(|g| !g.url.is_empty()).count();
@@ -98,6 +103,7 @@ pub fn print_json(
         total_contribution_opportunities,
         projects,
         packages: packages.to_vec(),
+        contributions_summary: contribution_summary,
     };
 
     let json = serde_json::to_string_pretty(&report)?;
@@ -164,6 +170,7 @@ mod tests {
                 },
             ],
             packages: packages.clone(),
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -194,6 +201,7 @@ mod tests {
             total_contribution_opportunities: 0,
             projects: vec![],
             packages: vec![],
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -227,6 +235,7 @@ mod tests {
             total_contribution_opportunities: 0,
             projects: vec![],
             packages,
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -280,6 +289,7 @@ mod tests {
                 },
             ],
             packages,
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -303,6 +313,7 @@ mod tests {
             total_contribution_opportunities: 0,
             projects: vec![],
             packages: vec![],
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -334,6 +345,7 @@ mod tests {
             total_contribution_opportunities: 0,
             projects: vec![],
             packages,
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -392,6 +404,7 @@ mod tests {
                 },
             ],
             packages: packages.clone(),
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -441,6 +454,7 @@ mod tests {
                 }],
             }],
             packages,
+            contributions_summary: None,
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();
@@ -471,7 +485,7 @@ mod tests {
 
         // Just verify it doesn't panic — output goes to stdout
         let enrichment = EnrichmentMap::new();
-        let result = print_json(&packages, timestamp, &contributions, &enrichment);
+        let result = print_json(&packages, timestamp, &contributions, &enrichment, None);
         assert!(result.is_ok());
     }
 
@@ -482,7 +496,7 @@ mod tests {
         let contributions = ContributionMap::new();
         let enrichment = EnrichmentMap::new();
 
-        let result = print_json(&packages, timestamp, &contributions, &enrichment);
+        let result = print_json(&packages, timestamp, &contributions, &enrichment, None);
         assert!(result.is_ok());
     }
 }
