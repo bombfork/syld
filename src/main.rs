@@ -53,13 +53,9 @@ enum Commands {
         #[arg(long, default_value = "terminal")]
         format: ReportFormat,
 
-        /// Fetch additional info from the network (donation links, etc.)
+        /// Force re-enrichment, bypassing the cache
         #[arg(long)]
-        enrich: bool,
-
-        /// Force re-enrichment, bypassing the cache (implies --enrich)
-        #[arg(long)]
-        force_enrich: bool,
+        force_refresh: bool,
 
         /// Number of parallel enrichment threads
         #[arg(short = 'j', long)]
@@ -207,10 +203,9 @@ fn main() -> Result<()> {
         Some(Commands::Scan { limit, silent }) => cmd_scan(&config, limit, silent),
         Some(Commands::Report {
             format,
-            enrich,
-            force_enrich,
+            force_refresh,
             jobs,
-        }) => cmd_report(&config, &format, enrich, force_enrich, jobs),
+        }) => cmd_report(&config, &format, force_refresh, jobs),
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
@@ -288,8 +283,7 @@ fn cmd_scan(config: &Config, limit: usize, silent: bool) -> Result<()> {
 fn cmd_report(
     config: &Config,
     format: &ReportFormat,
-    enrich: bool,
-    force_enrich: bool,
+    force_refresh: bool,
     jobs: Option<usize>,
 ) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
@@ -315,10 +309,9 @@ fn cmd_report(
         }
     };
 
-    // Run enrichment if requested via CLI flag or config
-    // --force-enrich implies --enrich
-    let enrichment = if enrich || force_enrich || config.enrich {
-        syld::enrich::enrich_packages(&scan.packages, &storage, config, force_enrich, jobs)?
+    // Run enrichment if enabled in config; --force-refresh bypasses cache
+    let enrichment = if config.enrich || force_refresh {
+        syld::enrich::enrich_packages(&scan.packages, &storage, config, force_refresh, jobs)?
     } else {
         syld::enrich::EnrichmentMap::new()
     };

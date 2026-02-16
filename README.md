@@ -101,8 +101,8 @@ syld scan --limit 50        # show more results (0 for all)
 ### 3. Review
 
 ```sh
-syld report                 # terminal report from last scan
-syld report --enrich        # fetch donation links, stars, etc.
+syld report                 # terminal report from last scan (enriches if configured)
+syld report --force-refresh # re-fetch enrichment data, bypassing cache
 syld report --format json   # machine-readable output
 syld report --format html   # HTML report
 ```
@@ -119,7 +119,7 @@ syld budget plan --strategy weighted
 
 ### 5. Hooks
 
-Package manager hooks surface contribution opportunities after transactions. A prior `syld scan` + `syld report --enrich` is needed for the hook to have data.
+Package manager hooks surface contribution opportunities after transactions. A prior `syld scan` + `syld report` (with `enrich = true` in config) is needed for the hook to have data.
 
 ```sh
 syld hook list                      # show available hooks
@@ -164,7 +164,7 @@ mise run lint         # auto-fix clippy warnings
 syld respects your privacy:
 
 - **Default mode**: reads only local package databases. Zero network access.
-- **Enriched mode** (`--enrich`): opt-in only. Fetches project metadata from public sources (GitHub, GitLab, Open Collective, Liberapay). No personal data is sent.
+- **Enriched mode** (`enrich = true` in config): opt-in only. Fetches project metadata from public sources (GitHub, GitLab, Open Collective, Liberapay). No personal data is sent.
 - No telemetry, no tracking, no accounts.
 
 ## License
