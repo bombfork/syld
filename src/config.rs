@@ -81,6 +81,19 @@ impl Config {
         Ok(dirs.config_dir().join("config.toml"))
     }
 
+    /// Save configuration to the XDG config path.
+    pub fn save(&self) -> Result<()> {
+        let path = Self::config_path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+        }
+        let toml = toml::to_string_pretty(self).context("Failed to serialize config")?;
+        fs::write(&path, &toml)
+            .with_context(|| format!("Failed to write config to {}", path.display()))?;
+        Ok(())
+    }
+
     /// Path to the data directory.
     pub fn data_dir() -> Result<PathBuf> {
         let dirs = project_dirs()?;

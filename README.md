@@ -11,12 +11,7 @@ syld scans your system's package managers, identifies the open source projects y
 - **Grouped output** — packages are grouped by upstream project and sorted alphabetically
 - **Pagination** — browse results incrementally with `--limit`
 
-### Planned
-
-- **Donation planning** — set a monthly/yearly budget and get a plan to spread it across projects ([#13](https://github.com/bombfork/syld/issues/13))
-- **Enrichment (opt-in)** — fetch donation links, bug trackers, and contributing guides from upstream ([#15](https://github.com/bombfork/syld/issues/15))
-- **Multiple output formats** — JSON and HTML reports ([#12](https://github.com/bombfork/syld/issues/12))
-- **Systemd integration** — user-level timer for periodic scans (unit files ship in `systemd/`)
+- **Systemd integration** — user-level timer for periodic scans (`syld install service`)
 
 ### Supported package managers
 
@@ -44,22 +39,92 @@ cargo build --release
 cp target/release/syld ~/.local/bin/
 ```
 
-### Systemd timer (optional)
+### First-time setup
 
-To run syld weekly as a user service:
+The recommended way to get started is the interactive setup wizard:
+
+```sh
+syld setup
+```
+
+This walks you through configuration, installs the systemd timer and package manager hooks, and runs an initial scan — making syld fully operational in one command.
+
+### Manual installation (alternative)
+
+If you prefer non-interactive or scripted installs, use the individual install commands:
+
+```sh
+syld install service --frequency weekly --enable   # systemd user timer
+syld install hook pacman-post-transaction           # pacman ALPM hook (requires sudo)
+```
+
+Or copy the reference template files directly:
 
 ```sh
 cp systemd/syld.service systemd/syld.timer ~/.config/systemd/user/
 systemctl --user enable --now syld.timer
+sudo cp hooks/pacman/syld.hook /usr/share/libalpm/hooks/
 ```
+
+Note: the template files hardcode default binary paths. The `syld install` commands generate files with the correct path to your syld binary.
 
 ## Usage
 
+syld follows a four-step workflow: **setup → discover → review → budget**.
+
+### 1. Setup
+
 ```sh
-# Scan installed packages (default action)
-syld
-syld scan
-syld scan --limit 50    # show more results (0 for all)
+syld setup                         # interactive first-run wizard
+syld config set enrich true        # opt in to network enrichment
+syld config set budget.currency EUR
+syld config show                   # view current settings
+syld config edit                   # open config in $EDITOR
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `enrich` | bool | Enable network enrichment by default |
+| `enrich_jobs` | number | Parallel enrichment threads (default: 4) |
+| `budget.amount` | number | Support budget amount |
+| `budget.currency` | string | Currency code (default: USD) |
+| `budget.cadence` | string | `monthly` or `yearly` (default: monthly) |
+
+### 2. Discover
+
+```sh
+syld                        # scan installed packages (default action)
+syld scan                   # same as above
+syld scan --limit 50        # show more results (0 for all)
+```
+
+### 3. Review
+
+```sh
+syld report                 # terminal report from last scan
+syld report --enrich        # fetch donation links, stars, etc.
+syld report --format json   # machine-readable output
+syld report --format html   # HTML report
+```
+
+### 4. Budget
+
+```sh
+syld budget set 10                  # set a monthly budget
+syld budget set 120 --cadence yearly
+syld budget show                    # display current budget
+syld budget plan                    # generate a donation plan
+syld budget plan --strategy weighted
+```
+
+### 5. Hooks
+
+Package manager hooks surface contribution opportunities after transactions. A prior `syld scan` + `syld report --enrich` is needed for the hook to have data.
+
+```sh
+syld hook list                      # show available hooks
+syld hook run pacman-post-transaction  # run a hook manually (reads stdin)
+syld install hook pacman-post-transaction  # install a hook
 ```
 
 ## Configuration

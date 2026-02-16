@@ -11,6 +11,8 @@ use syld::budget::{self, FundableGroup};
 use syld::config::{BudgetConfig, Cadence, Config};
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
+use syld::hook::{self, HookContext};
+use syld::install;
 use syld::project::FundingChannel;
 use syld::report::{ContributionMap, html, json, lookup_enrichment, terminal};
 use syld::storage::Storage;
@@ -19,7 +21,13 @@ use syld::storage::Storage;
 #[command(
     name = "syld",
     about = "Support Your Linux Desktop — discover and support the open source you use",
-    version
+    version,
+    after_help = "\
+Workflow:
+  1. First time     syld setup
+  2. Discover       syld scan
+  3. Review         syld report
+  4. Budget         syld budget set 10 && syld budget plan"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -70,6 +78,21 @@ enum Commands {
     Config {
         #[command(subcommand)]
         command: Option<ConfigCommands>,
+    },
+
+    /// Manage package manager hooks
+    Hook {
+        #[command(subcommand)]
+        command: HookCommands,
+    },
+
+    /// Interactive first-time setup wizard
+    Setup,
+
+    /// Install syld integrations (systemd timer, package manager hooks)
+    Install {
+        #[command(subcommand)]
+        command: InstallCommands,
     },
 }
 
@@ -122,12 +145,53 @@ enum CacheCommands {
 }
 
 #[derive(Subcommand)]
+enum HookCommands {
+    /// Run a named hook (reads target packages from stdin)
+    Run {
+        /// Hook name (e.g. pacman-post-transaction)
+        name: String,
+    },
+
+    /// List all hooks with their availability status
+    List,
+}
+
+#[derive(Subcommand)]
+enum InstallCommands {
+    /// Install systemd user service and timer for periodic scans
+    Service {
+        /// Timer frequency (daily, weekly, monthly)
+        #[arg(long, default_value = "weekly")]
+        frequency: String,
+
+        /// Enable and start the timer immediately
+        #[arg(long)]
+        enable: bool,
+    },
+
+    /// Install package manager hook(s)
+    Hook {
+        /// Hook name (omit for interactive selection)
+        name: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ConfigCommands {
     /// Show current configuration
     Show,
 
     /// Open configuration file in $EDITOR
     Edit,
+
+    /// Set a configuration value
+    Set {
+        /// Configuration key (e.g. enrich, budget.amount)
+        key: String,
+
+        /// Value to set
+        value: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -146,6 +210,9 @@ fn main() -> Result<()> {
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
+        Some(Commands::Hook { command }) => cmd_hook(&config, &command),
+        Some(Commands::Setup) => cmd_setup(&config),
+        Some(Commands::Install { command }) => cmd_install(&command),
     }
 }
 
@@ -476,10 +543,68 @@ fn cmd_budget_plan(config: &Config, strategy: &AllocationStrategy) -> Result<()>
     Ok(())
 }
 
+fn cmd_hook(config: &Config, command: &HookCommands) -> Result<()> {
+    match command {
+        HookCommands::Run { name } => cmd_hook_run(config, name),
+        HookCommands::List => cmd_hook_list(),
+    }
+}
+
+fn cmd_hook_run(config: &Config, name: &str) -> Result<()> {
+    let hook = match hook::find_hook(name) {
+        Some(h) => h,
+        None => {
+            anyhow::bail!("Unknown hook '{name}'. Run `syld hook list` to see available hooks.");
+        }
+    };
+
+    if !hook.is_available() {
+        anyhow::bail!("Hook '{name}' is not available on this system (missing prerequisites).");
+    }
+
+    let stdin = std::io::stdin();
+    let targets: Vec<String> = std::io::BufRead::lines(stdin.lock())
+        .filter_map(|line| {
+            let line = line.ok()?;
+            let trimmed = line.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .collect();
+
+    let ctx = HookContext { config, targets };
+
+    hook.run(&ctx)
+}
+
+fn cmd_hook_list() -> Result<()> {
+    let hooks = hook::all_hooks();
+
+    if hooks.is_empty() {
+        eprintln!("No hooks registered.");
+        return Ok(());
+    }
+
+    for h in &hooks {
+        let status = if h.is_available() {
+            "available"
+        } else {
+            "not available"
+        };
+        println!("  {:<30} {} [{}]", h.name(), h.description(), status);
+    }
+
+    Ok(())
+}
+
 fn cmd_config(config: &Config, command: &Option<ConfigCommands>) -> Result<()> {
     match command {
         None | Some(ConfigCommands::Show) => cmd_config_show(config),
         Some(ConfigCommands::Edit) => cmd_config_edit(),
+        Some(ConfigCommands::Set { key, value }) => cmd_config_set(key, value),
     }
 }
 
@@ -489,6 +614,51 @@ fn cmd_config_show(config: &Config) -> Result<()> {
 
     let toml = toml::to_string_pretty(config).context("Failed to serialize config")?;
     print!("{toml}");
+    Ok(())
+}
+
+fn cmd_config_set(key: &str, value: &str) -> Result<()> {
+    let mut config = Config::load()?;
+
+    match key {
+        "enrich" => {
+            config.enrich = value
+                .parse::<bool>()
+                .with_context(|| format!("Invalid boolean '{value}'. Use 'true' or 'false'."))?;
+        }
+        "enrich_jobs" => {
+            config.enrich_jobs = Some(
+                value
+                    .parse::<usize>()
+                    .with_context(|| format!("Invalid number '{value}'."))?,
+            );
+        }
+        "budget.amount" => {
+            config.budget.amount = Some(
+                value
+                    .parse::<f64>()
+                    .with_context(|| format!("Invalid number '{value}'."))?,
+            );
+        }
+        "budget.currency" => {
+            config.budget.currency = value.to_uppercase();
+        }
+        "budget.cadence" => {
+            config.budget.cadence = match value.to_lowercase().as_str() {
+                "monthly" => Cadence::Monthly,
+                "yearly" => Cadence::Yearly,
+                _ => anyhow::bail!("Invalid cadence '{value}'. Valid values: monthly, yearly."),
+            };
+        }
+        _ => {
+            anyhow::bail!(
+                "Unknown config key '{key}'. Valid keys: enrich, enrich_jobs, budget.amount, budget.currency, budget.cadence"
+            );
+        }
+    }
+
+    config.save()?;
+    eprintln!("Set {key} = {value}");
     Ok(())
 }
 
@@ -522,4 +692,58 @@ fn cmd_config_edit() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn cmd_setup(config: &Config) -> Result<()> {
+    syld::setup::run_setup(config)
+}
+
+fn cmd_install(command: &InstallCommands) -> Result<()> {
+    match command {
+        InstallCommands::Service { frequency, enable } => {
+            install::service::install_service(frequency, *enable)
+        }
+        InstallCommands::Hook { name } => cmd_install_hook(name.as_deref()),
+    }
+}
+
+fn cmd_install_hook(name: Option<&str>) -> Result<()> {
+    let hooks = install::hook_install::installable_hooks();
+
+    if let Some(name) = name {
+        let hook = hooks.into_iter().find(|h| h.name == name);
+        match hook {
+            Some(h) => (h.install_fn)(),
+            None => {
+                anyhow::bail!(
+                    "Unknown hook '{name}'. Available hooks: {}",
+                    install::hook_install::installable_hooks()
+                        .iter()
+                        .map(|h| h.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+    } else {
+        let available: Vec<_> = hooks.into_iter().filter(|h| h.available).collect();
+        if available.is_empty() {
+            eprintln!("No installable hooks detected for this system.");
+            return Ok(());
+        }
+
+        let labels: Vec<String> = available
+            .iter()
+            .map(|h| format!("{} — {}", h.name, h.description))
+            .collect();
+
+        let selection = dialoguer::Select::new()
+            .with_prompt("Select a hook to install")
+            .items(&labels)
+            .default(0)
+            .interact()
+            .context("Failed to read selection")?;
+
+        (available[selection].install_fn)()
+    }
 }

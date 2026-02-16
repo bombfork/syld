@@ -1,0 +1,13 @@
+# Reference template. Prefer `syld install hook` which generates
+# this file with the correct binary path.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = *
+
+[Action]
+Description = Checking open source contribution opportunities...
+When = PostTransaction
+Exec = /usr/bin/syld hook run pacman-post-transaction
+NeedsTargets

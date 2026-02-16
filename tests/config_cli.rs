@@ -139,3 +139,165 @@ fn config_edit_fails_with_bad_editor() {
         .assert()
         .failure();
 }
+
+// ── config set ──────────────────────────────────────────────────────
+
+#[test]
+fn config_set_enrich_true() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "enrich", "true"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("Set enrich = true"));
+
+    syld(tmp.path())
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("enrich = true"));
+}
+
+#[test]
+fn config_set_enrich_jobs() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "enrich_jobs", "16"])
+        .assert()
+        .success();
+
+    syld(tmp.path())
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("enrich_jobs = 16"));
+}
+
+#[test]
+fn config_set_budget_amount() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "budget.amount", "25.50"])
+        .assert()
+        .success();
+
+    syld(tmp.path())
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("amount = 25.5"));
+}
+
+#[test]
+fn config_set_budget_currency() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "budget.currency", "eur"])
+        .assert()
+        .success();
+
+    syld(tmp.path())
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("currency = \"EUR\""));
+}
+
+#[test]
+fn config_set_budget_cadence() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "budget.cadence", "yearly"])
+        .assert()
+        .success();
+
+    syld(tmp.path())
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("cadence = \"yearly\""));
+}
+
+#[test]
+fn config_set_unknown_key_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "nonexistent", "val"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown config key"))
+        .stderr(predicate::str::contains("enrich"));
+}
+
+#[test]
+fn config_set_invalid_bool_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "enrich", "yes"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid boolean"));
+}
+
+#[test]
+fn config_set_invalid_number_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "enrich_jobs", "abc"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid number"));
+}
+
+#[test]
+fn config_set_invalid_cadence_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    syld(tmp.path())
+        .args(["config", "set", "budget.cadence", "weekly"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Invalid cadence"));
+}
+
+#[test]
+fn config_set_preserves_other_values() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("syld");
+    fs::create_dir_all(&config_dir).unwrap();
+    fs::write(
+        config_dir.join("config.toml"),
+        "enrich = true\n\n[budget]\namount = 42.0\ncurrency = \"EUR\"\ncadence = \"yearly\"\n",
+    )
+    .unwrap();
+
+    // Set only budget.currency, everything else should survive
+    syld(tmp.path())
+        .args(["config", "set", "budget.currency", "GBP"])
+        .assert()
+        .success();
+
+    syld(tmp.path())
+        .args(["config", "show"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("enrich = true"))
+        .stdout(predicate::str::contains("amount = 42.0"))
+        .stdout(predicate::str::contains("currency = \"GBP\""))
+        .stdout(predicate::str::contains("cadence = \"yearly\""));
+}
+
+#[test]
+fn config_set_creates_file_when_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("syld").join("config.toml");
+    assert!(!config_path.exists());
+
+    syld(tmp.path())
+        .args(["config", "set", "enrich", "true"])
+        .assert()
+        .success();
+
+    assert!(config_path.exists());
+    let content = fs::read_to_string(&config_path).unwrap();
+    let _: toml::Value = toml::from_str(&content).expect("saved config is not valid TOML");
+}
