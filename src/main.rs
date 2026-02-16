@@ -220,20 +220,26 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_scan(config: &Config) -> Result<Vec<InstalledPackage>> {
+fn run_scan(config: &Config, silent: bool) -> Result<Vec<InstalledPackage>> {
     let discoverers = discover::active_discoverers(config);
 
     if discoverers.is_empty() {
-        eprintln!("No supported package managers detected on this system.");
+        if !silent {
+            eprintln!("No supported package managers detected on this system.");
+        }
         return Ok(Vec::new());
     }
 
     let mut all_packages = Vec::new();
     for d in &discoverers {
-        eprintln!("Scanning {} packages...", d.name());
+        if !silent {
+            eprintln!("Scanning {} packages...", d.name());
+        }
         match d.discover() {
             Ok(packages) => {
-                eprintln!("  Found {} packages", packages.len());
+                if !silent {
+                    eprintln!("  Found {} packages", packages.len());
+                }
                 all_packages.extend(packages);
             }
             Err(e) => {
@@ -242,11 +248,17 @@ fn run_scan(config: &Config) -> Result<Vec<InstalledPackage>> {
         }
     }
 
-    eprintln!("\nTotal: {} packages discovered", all_packages.len());
+    if !silent {
+        eprintln!("\nTotal: {} packages discovered", all_packages.len());
+    }
 
     match Storage::open() {
         Ok(storage) => match storage.save_scan(&all_packages) {
-            Ok(_) => eprintln!("Scan saved ({} packages)", all_packages.len()),
+            Ok(_) => {
+                if !silent {
+                    eprintln!("Scan saved ({} packages)", all_packages.len());
+                }
+            }
             Err(e) => eprintln!("Warning: failed to save scan: {e}"),
         },
         Err(e) => eprintln!("Warning: failed to open database: {e}"),
@@ -256,7 +268,7 @@ fn run_scan(config: &Config) -> Result<Vec<InstalledPackage>> {
 }
 
 fn cmd_scan(config: &Config, limit: usize, silent: bool) -> Result<()> {
-    let all_packages = run_scan(config)?;
+    let all_packages = run_scan(config, silent)?;
 
     if !silent {
         let mut sorted = all_packages;
@@ -289,7 +301,7 @@ fn cmd_report(
         Some(s) => s,
         None => {
             eprintln!("No previous scan found. Running scan first\u{2026}");
-            run_scan(config)?;
+            run_scan(config, true)?;
             let fresh = storage
                 .latest_scan()
                 .context("Failed to read scan after auto-scan")?;
@@ -413,7 +425,7 @@ fn cmd_budget_plan(config: &Config, strategy: &AllocationStrategy) -> Result<()>
         Some(s) => s,
         None => {
             eprintln!("No previous scan found. Running scan first\u{2026}");
-            run_scan(config)?;
+            run_scan(config, true)?;
             match storage.latest_scan()? {
                 Some(s) => s,
                 None => {
