@@ -11,9 +11,7 @@ syld scans your system's package managers, identifies the open source projects y
 - **Grouped output** — packages are grouped by upstream project and sorted alphabetically
 - **Pagination** — browse results incrementally with `--limit`
 
-### Planned
-
-- **Systemd integration** — user-level timer for periodic scans (unit files ship in `systemd/`)
+- **Systemd integration** — user-level timer for periodic scans (`syld install service`)
 
 ### Supported package managers
 
@@ -41,22 +39,43 @@ cargo build --release
 cp target/release/syld ~/.local/bin/
 ```
 
-### Systemd timer (optional)
+### First-time setup
 
-To run syld weekly as a user service:
+The recommended way to get started is the interactive setup wizard:
+
+```sh
+syld setup
+```
+
+This walks you through configuration, installs the systemd timer and package manager hooks, and runs an initial scan — making syld fully operational in one command.
+
+### Manual installation (alternative)
+
+If you prefer non-interactive or scripted installs, use the individual install commands:
+
+```sh
+syld install service --frequency weekly --enable   # systemd user timer
+syld install hook pacman-post-transaction           # pacman ALPM hook (requires sudo)
+```
+
+Or copy the reference template files directly:
 
 ```sh
 cp systemd/syld.service systemd/syld.timer ~/.config/systemd/user/
 systemctl --user enable --now syld.timer
+sudo cp hooks/pacman/syld.hook /usr/share/libalpm/hooks/
 ```
+
+Note: the template files hardcode default binary paths. The `syld install` commands generate files with the correct path to your syld binary.
 
 ## Usage
 
-syld follows a five-step workflow: **configure → discover → review → budget → hooks**.
+syld follows a four-step workflow: **setup → discover → review → budget**.
 
-### 1. Configure
+### 1. Setup
 
 ```sh
+syld setup                         # interactive first-run wizard
 syld config set enrich true        # opt in to network enrichment
 syld config set budget.currency EUR
 syld config show                   # view current settings
@@ -105,14 +124,7 @@ Package manager hooks surface contribution opportunities after transactions. A p
 ```sh
 syld hook list                      # show available hooks
 syld hook run pacman-post-transaction  # run a hook manually (reads stdin)
-```
-
-#### Pacman hook (Arch Linux)
-
-Install the alpm hook to see funding opportunities after every `pacman -S`:
-
-```sh
-sudo cp hooks/pacman/syld.hook /usr/share/libalpm/hooks/
+syld install hook pacman-post-transaction  # install a hook
 ```
 
 ## Configuration

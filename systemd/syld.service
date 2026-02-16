@@ -1,3 +1,5 @@
+# Reference template. Prefer `syld install service` which generates
+# this file with the correct binary path.
 [Unit]
 Description=Support Your Linux Desktop — periodic scan
 Documentation=https://github.com/bombfork/syld

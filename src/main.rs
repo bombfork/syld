@@ -12,6 +12,7 @@ use syld::config::{BudgetConfig, Cadence, Config};
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
 use syld::hook::{self, HookContext};
+use syld::install;
 use syld::project::FundingChannel;
 use syld::report::{ContributionMap, html, json, lookup_enrichment, terminal};
 use syld::storage::Storage;
@@ -23,11 +24,10 @@ use syld::storage::Storage;
     version,
     after_help = "\
 Workflow:
-  1. Configure   syld config set enrich true
-  2. Discover    syld scan
-  3. Review      syld report
-  4. Budget      syld budget set 10 && syld budget plan
-  5. Hooks       syld hook list"
+  1. First time     syld setup
+  2. Discover       syld scan
+  3. Review         syld report
+  4. Budget         syld budget set 10 && syld budget plan"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -84,6 +84,15 @@ enum Commands {
     Hook {
         #[command(subcommand)]
         command: HookCommands,
+    },
+
+    /// Interactive first-time setup wizard
+    Setup,
+
+    /// Install syld integrations (systemd timer, package manager hooks)
+    Install {
+        #[command(subcommand)]
+        command: InstallCommands,
     },
 }
 
@@ -148,6 +157,26 @@ enum HookCommands {
 }
 
 #[derive(Subcommand)]
+enum InstallCommands {
+    /// Install systemd user service and timer for periodic scans
+    Service {
+        /// Timer frequency (daily, weekly, monthly)
+        #[arg(long, default_value = "weekly")]
+        frequency: String,
+
+        /// Enable and start the timer immediately
+        #[arg(long)]
+        enable: bool,
+    },
+
+    /// Install package manager hook(s)
+    Hook {
+        /// Hook name (omit for interactive selection)
+        name: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ConfigCommands {
     /// Show current configuration
     Show,
@@ -182,6 +211,8 @@ fn main() -> Result<()> {
         Some(Commands::Budget { command }) => cmd_budget(&config, &command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
+        Some(Commands::Setup) => cmd_setup(&config),
+        Some(Commands::Install { command }) => cmd_install(&command),
     }
 }
 
@@ -661,4 +692,58 @@ fn cmd_config_edit() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn cmd_setup(config: &Config) -> Result<()> {
+    syld::setup::run_setup(config)
+}
+
+fn cmd_install(command: &InstallCommands) -> Result<()> {
+    match command {
+        InstallCommands::Service { frequency, enable } => {
+            install::service::install_service(frequency, *enable)
+        }
+        InstallCommands::Hook { name } => cmd_install_hook(name.as_deref()),
+    }
+}
+
+fn cmd_install_hook(name: Option<&str>) -> Result<()> {
+    let hooks = install::hook_install::installable_hooks();
+
+    if let Some(name) = name {
+        let hook = hooks.into_iter().find(|h| h.name == name);
+        match hook {
+            Some(h) => (h.install_fn)(),
+            None => {
+                anyhow::bail!(
+                    "Unknown hook '{name}'. Available hooks: {}",
+                    install::hook_install::installable_hooks()
+                        .iter()
+                        .map(|h| h.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+    } else {
+        let available: Vec<_> = hooks.into_iter().filter(|h| h.available).collect();
+        if available.is_empty() {
+            eprintln!("No installable hooks detected for this system.");
+            return Ok(());
+        }
+
+        let labels: Vec<String> = available
+            .iter()
+            .map(|h| format!("{} — {}", h.name, h.description))
+            .collect();
+
+        let selection = dialoguer::Select::new()
+            .with_prompt("Select a hook to install")
+            .items(&labels)
+            .default(0)
+            .interact()
+            .context("Failed to read selection")?;
+
+        (available[selection].install_fn)()
+    }
 }
