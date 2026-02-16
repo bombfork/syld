@@ -7,7 +7,9 @@ use comfy_table::{ContentArrangement, Table};
 
 use crate::discover::{InstalledPackage, PackageSource};
 use crate::enrich::EnrichmentMap;
-use crate::report::{ContributionMap, lookup_contributions, lookup_enrichment};
+use crate::report::{
+    ContributionMap, ContributionSummary, lookup_contributions, lookup_enrichment,
+};
 
 /// Sort packages alphabetically by name (case-insensitive), then by source.
 pub fn sort_packages(packages: &mut [InstalledPackage]) {
@@ -160,6 +162,7 @@ pub fn print_summary(
     timestamp: DateTime<Utc>,
     contributions: &ContributionMap,
     enrichment: &EnrichmentMap,
+    contribution_summary: Option<&ContributionSummary>,
 ) {
     if packages.is_empty() {
         println!("No packages found.");
@@ -303,6 +306,44 @@ pub fn print_summary(
             }
 
             println!("{help_table}");
+        }
+    }
+
+    // Your Contributions section
+    if let Some(summary) = contribution_summary
+        && !summary.is_empty()
+    {
+        println!();
+        println!(
+            "Your open source contributions ({}):",
+            timestamp.format("%Y")
+        );
+        if summary.stars > 0 {
+            println!("  {:>3} projects starred", summary.stars);
+        }
+        if summary.issues > 0 {
+            println!("  {:>3} issues filed", summary.issues);
+        }
+        if summary.pull_requests > 0 {
+            println!("  {:>3} pull requests submitted", summary.pull_requests);
+        }
+        if summary.docs > 0 {
+            println!("  {:>3} documentation improvements", summary.docs);
+        }
+        if summary.donations > 0 {
+            if let (Some(total), Some(currency)) =
+                (summary.donation_total, &summary.donation_currency)
+            {
+                println!(
+                    "  {:>3} projects donated to ({} {:.2} total)",
+                    summary.donations, currency, total
+                );
+            } else {
+                println!("  {:>3} projects donated to", summary.donations);
+            }
+        }
+        if summary.other > 0 {
+            println!("  {:>3} other contributions", summary.other);
         }
     }
 

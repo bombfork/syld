@@ -12,7 +12,7 @@ use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
 use syld::hook::{self, HookContext};
 use syld::install;
-use syld::report::{ContributionMap, html, json, terminal};
+use syld::report::{ContributionMap, ContributionSummary, html, json, terminal};
 use syld::storage::Storage;
 
 #[derive(Parser)]
@@ -229,6 +229,7 @@ fn cmd_scan(config: &Config, limit: usize, silent: bool) -> Result<()> {
             chrono::Utc::now(),
             &ContributionMap::new(),
             &EnrichmentMap::new(),
+            None,
         );
     }
 
@@ -272,17 +273,43 @@ fn cmd_report(
     };
     let contributions = ContributionMap::new();
 
+    // Build contribution summary from stored records
+    let contribution_summary = storage
+        .get_contributions(None, None)
+        .ok()
+        .map(|records| ContributionSummary::from_records(&records))
+        .filter(|s| !s.is_empty());
+
     match format {
         ReportFormat::Terminal => {
             let mut packages = scan.packages;
             terminal::sort_packages(&mut packages);
-            terminal::print_summary(&packages, 0, scan.timestamp, &contributions, &enrichment);
+            terminal::print_summary(
+                &packages,
+                0,
+                scan.timestamp,
+                &contributions,
+                &enrichment,
+                contribution_summary.as_ref(),
+            );
         }
         ReportFormat::Json => {
-            json::print_json(&scan.packages, scan.timestamp, &contributions, &enrichment)?;
+            json::print_json(
+                &scan.packages,
+                scan.timestamp,
+                &contributions,
+                &enrichment,
+                contribution_summary,
+            )?;
         }
         ReportFormat::Html => {
-            html::print_html(&scan.packages, scan.timestamp, &contributions, &enrichment);
+            html::print_html(
+                &scan.packages,
+                scan.timestamp,
+                &contributions,
+                &enrichment,
+                contribution_summary.as_ref(),
+            );
         }
     }
 
