@@ -671,6 +671,20 @@ impl Storage {
         Ok(count > 0)
     }
 
+    /// Check whether a contribution with the given URL already exists.
+    ///
+    /// This is useful for deduplicating issues and PRs where multiple
+    /// contributions of the same kind can exist for one project.
+    pub fn has_contribution_url(&self, url: &str) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM contributions WHERE url = ?1",
+            params![url],
+            |row| row.get(0),
+        )?;
+
+        Ok(count > 0)
+    }
+
     /// Import existing donation history records into the contributions table.
     ///
     /// Each donation is recorded as a `Donation` contribution with source
@@ -1677,6 +1691,37 @@ mod tests {
         assert!(
             !storage
                 .has_contribution("https://github.com/example", &ContributionRecordKind::Issue)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn has_contribution_url_true() {
+        let storage = open_memory();
+        storage
+            .save_contribution(
+                "https://github.com/example",
+                &ContributionRecordKind::Issue,
+                Some("Fix bug"),
+                Some("https://github.com/example/issues/1"),
+                Utc::now(),
+                None,
+            )
+            .unwrap();
+
+        assert!(
+            storage
+                .has_contribution_url("https://github.com/example/issues/1")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn has_contribution_url_false() {
+        let storage = open_memory();
+        assert!(
+            !storage
+                .has_contribution_url("https://github.com/example/issues/999")
                 .unwrap()
         );
     }

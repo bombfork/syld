@@ -110,6 +110,7 @@
 //! the full design context.
 
 pub mod github_good_first_issues;
+pub mod github_sync;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
