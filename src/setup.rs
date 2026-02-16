@@ -130,25 +130,28 @@ pub fn run_setup(config: &Config) -> Result<()> {
         eprintln!();
     }
 
-    // ── Stage 4: Initial scan ───────────────────────────────────────────
+    // ── Stage 4: Initial report ────────────────────────────────────────
 
-    eprintln!("── Initial scan ──\n");
+    eprintln!("── Initial report ──\n");
 
-    let run_scan = Confirm::new()
-        .with_prompt("Run an initial scan now?")
+    let run_report = Confirm::new()
+        .with_prompt(
+            "Generate an initial report now? (scans your system and fetches project metadata \
+             — may take a few minutes on first run)",
+        )
         .default(true)
         .interact()
-        .context("Failed to read scan preference")?;
+        .context("Failed to read report preference")?;
 
-    if run_scan {
+    if run_report {
         let binary = install::resolve_binary_path()?;
         let status = std::process::Command::new(&binary)
-            .arg("scan")
+            .arg("report")
             .status()
             .with_context(|| format!("Failed to run {}", binary.display()))?;
 
         if !status.success() {
-            eprintln!("Warning: scan exited with {status}");
+            eprintln!("Warning: report exited with {status}");
         }
     }
 
