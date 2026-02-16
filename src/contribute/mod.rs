@@ -134,6 +134,92 @@ pub enum ContributionKind {
     SpreadTheWord,
 }
 
+/// The kind of contribution tracked in the history database.
+///
+/// This is broader than [`ContributionKind`] because it also covers monetary
+/// contributions and pull requests — actions that have already been completed
+/// rather than opportunities to contribute.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ContributionRecordKind {
+    /// Starred the project on its hosting platform.
+    Star,
+    /// Filed or contributed to an issue.
+    Issue,
+    /// Submitted a pull request.
+    PullRequest,
+    /// Made a monetary donation.
+    Donation,
+    /// Improved documentation.
+    Docs,
+    /// Any other contribution type.
+    Other,
+}
+
+impl ContributionRecordKind {
+    /// Parse a kind string from the database.
+    pub fn from_db(s: &str) -> Option<Self> {
+        match s {
+            "star" => Some(Self::Star),
+            "issue" => Some(Self::Issue),
+            "pull_request" => Some(Self::PullRequest),
+            "donation" => Some(Self::Donation),
+            "docs" => Some(Self::Docs),
+            "other" => Some(Self::Other),
+            _ => None,
+        }
+    }
+
+    /// Return the database string representation.
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            Self::Star => "star",
+            Self::Issue => "issue",
+            Self::PullRequest => "pull_request",
+            Self::Donation => "donation",
+            Self::Docs => "docs",
+            Self::Other => "other",
+        }
+    }
+}
+
+impl std::fmt::Display for ContributionRecordKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Star => write!(f, "star"),
+            Self::Issue => write!(f, "issue"),
+            Self::PullRequest => write!(f, "pull request"),
+            Self::Donation => write!(f, "donation"),
+            Self::Docs => write!(f, "docs"),
+            Self::Other => write!(f, "other"),
+        }
+    }
+}
+
+/// A record of a completed contribution, stored in the database.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContributionRecord {
+    /// Database row ID.
+    pub id: i64,
+
+    /// URL of the project this contribution is for.
+    pub project_url: String,
+
+    /// What kind of contribution this was.
+    pub kind: ContributionRecordKind,
+
+    /// Human-readable description (e.g. issue title, PR title).
+    pub title: Option<String>,
+
+    /// Link to the contribution (PR URL, issue URL, etc.).
+    pub url: Option<String>,
+
+    /// When the contribution was made.
+    pub contributed_at: chrono::DateTime<chrono::Utc>,
+
+    /// How this record was created: `"github_sync"`, `"manual"`, `"donation_import"`.
+    pub source: Option<String>,
+}
+
 impl std::fmt::Display for ContributionKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -359,6 +445,42 @@ mod tests {
         let active: Vec<_> = backends.into_iter().filter(|b| b.is_available()).collect();
 
         assert_eq!(active.len(), 2);
+    }
+
+    #[test]
+    fn contribution_record_kind_db_roundtrip() {
+        let kinds = vec![
+            ContributionRecordKind::Star,
+            ContributionRecordKind::Issue,
+            ContributionRecordKind::PullRequest,
+            ContributionRecordKind::Donation,
+            ContributionRecordKind::Docs,
+            ContributionRecordKind::Other,
+        ];
+        for kind in kinds {
+            let s = kind.as_db_str();
+            let parsed =
+                ContributionRecordKind::from_db(s).unwrap_or_else(|| panic!("Failed to parse {s}"));
+            assert_eq!(parsed, kind);
+        }
+    }
+
+    #[test]
+    fn contribution_record_kind_from_db_unknown() {
+        assert!(ContributionRecordKind::from_db("unknown").is_none());
+    }
+
+    #[test]
+    fn contribution_record_kind_display() {
+        assert_eq!(ContributionRecordKind::Star.to_string(), "star");
+        assert_eq!(ContributionRecordKind::Issue.to_string(), "issue");
+        assert_eq!(
+            ContributionRecordKind::PullRequest.to_string(),
+            "pull request"
+        );
+        assert_eq!(ContributionRecordKind::Donation.to_string(), "donation");
+        assert_eq!(ContributionRecordKind::Docs.to_string(), "docs");
+        assert_eq!(ContributionRecordKind::Other.to_string(), "other");
     }
 
     #[test]
