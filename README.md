@@ -2,7 +2,7 @@
 
 Discover the open source software you use every day and help you support the projects behind it.
 
-syld scans your system's package managers, identifies the open source projects you rely on, and helps you build a donation plan to give back — even on a small budget.
+syld scans your system's package managers, identifies the open source projects you rely on, and helps you find ways to contribute back.
 
 ## Features
 
@@ -70,14 +70,13 @@ Note: the template files hardcode default binary paths. The `syld install` comma
 
 ## Usage
 
-syld follows a four-step workflow: **setup → discover → review → budget**.
+syld follows a three-step workflow: **setup → discover → review**.
 
 ### 1. Setup
 
 ```sh
 syld setup                         # interactive first-run wizard
 syld config set enrich true        # opt in to network enrichment
-syld config set budget.currency EUR
 syld config show                   # view current settings
 syld config edit                   # open config in $EDITOR
 ```
@@ -86,9 +85,6 @@ syld config edit                   # open config in $EDITOR
 |-----|------|-------------|
 | `enrich` | bool | Enable network enrichment by default |
 | `enrich_jobs` | number | Parallel enrichment threads (default: 4) |
-| `budget.amount` | number | Support budget amount |
-| `budget.currency` | string | Currency code (default: USD) |
-| `budget.cadence` | string | `monthly` or `yearly` (default: monthly) |
 
 ### 2. Discover
 
@@ -107,17 +103,7 @@ syld report --format json   # machine-readable output
 syld report --format html   # HTML report
 ```
 
-### 4. Budget
-
-```sh
-syld budget set 10                  # set a monthly budget
-syld budget set 120 --cadence yearly
-syld budget show                    # display current budget
-syld budget plan                    # generate a donation plan
-syld budget plan --strategy weighted
-```
-
-### 5. Hooks
+### 4. Hooks
 
 Package manager hooks surface contribution opportunities after transactions. A prior `syld scan` + `syld report` (with `enrich = true` in config) is needed for the hook to have data.
 
@@ -134,18 +120,13 @@ syld follows the [XDG Base Directory Specification](https://specifications.freed
 | Path | Purpose |
 |------|---------|
 | `~/.config/syld/config.toml` | User configuration |
-| `~/.local/share/syld/` | Scan history and budget data |
+| `~/.local/share/syld/` | Scan history and data |
 | `~/.cache/syld/` | Enrichment cache |
 
 Example `config.toml`:
 
 ```toml
 enrich = false
-
-[budget]
-amount = 5.0
-currency = "EUR"
-cadence = "monthly"
 ```
 
 ## Development
