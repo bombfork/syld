@@ -13,6 +13,7 @@ use rusqlite::{Connection, params};
 
 use crate::budget::DonationRecord;
 use crate::config::{BudgetConfig, Cadence, Config};
+use crate::contribute::{ContributionRecord, ContributionRecordKind};
 use crate::discover::{InstalledPackage, PackageSource};
 use crate::project::{FundingChannel, UpstreamProject};
 
@@ -110,6 +111,21 @@ impl Storage {
                 via         TEXT,
                 notes       TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS contributions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_url     TEXT    NOT NULL,
+                kind            TEXT    NOT NULL,
+                title           TEXT,
+                url             TEXT,
+                contributed_at  TEXT    NOT NULL,
+                source          TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_contributions_project_url
+                ON contributions(project_url);
+            CREATE INDEX IF NOT EXISTS idx_contributions_kind
+                ON contributions(kind);
             ",
             )
             .context("Failed to run database migrations")?;
@@ -506,6 +522,218 @@ impl Storage {
         Ok(self.conn.last_insert_rowid())
     }
 
+    // --- Contribution history ---
+
+    /// Record a contribution, returning the row ID.
+    pub fn save_contribution(
+        &self,
+        project_url: &str,
+        kind: &ContributionRecordKind,
+        title: Option<&str>,
+        url: Option<&str>,
+        contributed_at: DateTime<Utc>,
+        source: Option<&str>,
+    ) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO contributions (project_url, kind, title, url, contributed_at, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                project_url,
+                kind.as_db_str(),
+                title,
+                url,
+                contributed_at.to_rfc3339(),
+                source,
+            ],
+        )?;
+
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Get all contributions, optionally filtered by kind and/or project URL.
+    pub fn get_contributions(
+        &self,
+        kind: Option<&ContributionRecordKind>,
+        project_url: Option<&str>,
+    ) -> Result<Vec<ContributionRecord>> {
+        let mut sql = String::from(
+            "SELECT id, project_url, kind, title, url, contributed_at, source
+             FROM contributions WHERE 1=1",
+        );
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(k) = kind {
+            sql.push_str(&format!(" AND kind = ?{}", param_values.len() + 1));
+            param_values.push(Box::new(k.as_db_str().to_string()));
+        }
+        if let Some(p) = project_url {
+            sql.push_str(&format!(" AND project_url = ?{}", param_values.len() + 1));
+            param_values.push(Box::new(p.to_string()));
+        }
+
+        sql.push_str(" ORDER BY contributed_at");
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+
+        let rows = stmt
+            .query_map(params_ref.as_slice(), |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })?
+            .map(|r| {
+                let (id, project_url, kind_str, title, url, contributed_at_str, source) = r?;
+                let kind = ContributionRecordKind::from_db(&kind_str)
+                    .with_context(|| format!("Unknown contribution kind: {kind_str}"))?;
+                let contributed_at: DateTime<Utc> =
+                    contributed_at_str.parse().with_context(|| {
+                        format!("Failed to parse contributed_at: {contributed_at_str}")
+                    })?;
+                Ok(ContributionRecord {
+                    id,
+                    project_url,
+                    kind,
+                    title,
+                    url,
+                    contributed_at,
+                    source,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(rows)
+    }
+
+    /// Get all contributions since a given timestamp.
+    pub fn contributions_since(&self, since: DateTime<Utc>) -> Result<Vec<ContributionRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, project_url, kind, title, url, contributed_at, source
+             FROM contributions
+             WHERE contributed_at >= ?1
+             ORDER BY contributed_at",
+        )?;
+
+        let rows = stmt
+            .query_map(params![since.to_rfc3339()], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                ))
+            })?
+            .map(|r| {
+                let (id, project_url, kind_str, title, url, contributed_at_str, source) = r?;
+                let kind = ContributionRecordKind::from_db(&kind_str)
+                    .with_context(|| format!("Unknown contribution kind: {kind_str}"))?;
+                let contributed_at: DateTime<Utc> =
+                    contributed_at_str.parse().with_context(|| {
+                        format!("Failed to parse contributed_at: {contributed_at_str}")
+                    })?;
+                Ok(ContributionRecord {
+                    id,
+                    project_url,
+                    kind,
+                    title,
+                    url,
+                    contributed_at,
+                    source,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(rows)
+    }
+
+    /// Check whether a contribution of the given kind already exists for a project.
+    pub fn has_contribution(
+        &self,
+        project_url: &str,
+        kind: &ContributionRecordKind,
+    ) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM contributions WHERE project_url = ?1 AND kind = ?2",
+            params![project_url, kind.as_db_str()],
+            |row| row.get(0),
+        )?;
+
+        Ok(count > 0)
+    }
+
+    /// Import existing donation history records into the contributions table.
+    ///
+    /// Each donation is recorded as a `Donation` contribution with source
+    /// `"donation_import"`. Donations that have already been imported (same
+    /// project URL, kind=donation, and matching contributed_at timestamp)
+    /// are skipped.
+    pub fn import_donations_as_contributions(&self) -> Result<usize> {
+        let mut stmt = self.conn.prepare(
+            "SELECT project_url, amount, currency, donated_at, via
+             FROM donation_history
+             ORDER BY donated_at",
+        )?;
+
+        let donations: Vec<(String, f64, String, String, Option<String>)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, f64>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut imported = 0;
+        for (project_url, amount, currency, donated_at_str, via) in &donations {
+            let donated_at: DateTime<Utc> = donated_at_str
+                .parse()
+                .with_context(|| format!("Failed to parse donated_at: {donated_at_str}"))?;
+
+            // Skip if already imported (same project + kind + timestamp)
+            let exists: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM contributions
+                 WHERE project_url = ?1 AND kind = 'donation' AND contributed_at = ?2",
+                params![project_url, donated_at.to_rfc3339()],
+                |row| row.get(0),
+            )?;
+
+            if exists > 0 {
+                continue;
+            }
+
+            let title = match via {
+                Some(channel) => format!("{} {} via {}", amount, currency, channel),
+                None => format!("{} {}", amount, currency),
+            };
+
+            self.save_contribution(
+                project_url,
+                &ContributionRecordKind::Donation,
+                Some(&title),
+                None,
+                donated_at,
+                Some("donation_import"),
+            )?;
+
+            imported += 1;
+        }
+
+        Ok(imported)
+    }
+
     /// Clear all cached data: enrichment cache, packages, and scans.
     ///
     /// Deletes in FK-safe order (packages before scans).
@@ -588,6 +816,7 @@ fn parse_package_source(s: &str) -> Result<PackageSource> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contribute::ContributionRecordKind;
     use crate::project::FundingChannel;
 
     /// Helper: open an in-memory database for testing.
@@ -636,6 +865,7 @@ mod tests {
         assert_eq!(count("budget"), 0);
         assert_eq!(count("projects"), 0);
         assert_eq!(count("donation_history"), 0);
+        assert_eq!(count("contributions"), 0);
     }
 
     #[test]
@@ -1208,6 +1438,317 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    // --- Contribution history tests ---
+
+    #[test]
+    fn save_and_get_contribution() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        let id = storage
+            .save_contribution(
+                "https://github.com/example/repo",
+                &ContributionRecordKind::Star,
+                None,
+                Some("https://github.com/example/repo"),
+                now,
+                Some("github_sync"),
+            )
+            .expect("save_contribution failed");
+
+        assert_eq!(id, 1);
+
+        let contributions = storage
+            .get_contributions(None, None)
+            .expect("get_contributions failed");
+
+        assert_eq!(contributions.len(), 1);
+        assert_eq!(contributions[0].id, 1);
+        assert_eq!(
+            contributions[0].project_url,
+            "https://github.com/example/repo"
+        );
+        assert_eq!(contributions[0].kind, ContributionRecordKind::Star);
+        assert!(contributions[0].title.is_none());
+        assert_eq!(
+            contributions[0].url,
+            Some("https://github.com/example/repo".to_string())
+        );
+        assert_eq!(contributions[0].source, Some("github_sync".to_string()));
+    }
+
+    #[test]
+    fn get_contributions_filter_by_kind() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        storage
+            .save_contribution(
+                "https://github.com/a",
+                &ContributionRecordKind::Star,
+                None,
+                None,
+                now,
+                None,
+            )
+            .unwrap();
+        storage
+            .save_contribution(
+                "https://github.com/b",
+                &ContributionRecordKind::Issue,
+                Some("Fix bug"),
+                None,
+                now,
+                None,
+            )
+            .unwrap();
+        storage
+            .save_contribution(
+                "https://github.com/c",
+                &ContributionRecordKind::Star,
+                None,
+                None,
+                now,
+                None,
+            )
+            .unwrap();
+
+        let stars = storage
+            .get_contributions(Some(&ContributionRecordKind::Star), None)
+            .unwrap();
+        assert_eq!(stars.len(), 2);
+
+        let issues = storage
+            .get_contributions(Some(&ContributionRecordKind::Issue), None)
+            .unwrap();
+        assert_eq!(issues.len(), 1);
+        assert_eq!(issues[0].title, Some("Fix bug".to_string()));
+    }
+
+    #[test]
+    fn get_contributions_filter_by_project() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        storage
+            .save_contribution(
+                "https://github.com/a",
+                &ContributionRecordKind::Star,
+                None,
+                None,
+                now,
+                None,
+            )
+            .unwrap();
+        storage
+            .save_contribution(
+                "https://github.com/a",
+                &ContributionRecordKind::Issue,
+                Some("Fix bug"),
+                None,
+                now,
+                None,
+            )
+            .unwrap();
+        storage
+            .save_contribution(
+                "https://github.com/b",
+                &ContributionRecordKind::Star,
+                None,
+                None,
+                now,
+                None,
+            )
+            .unwrap();
+
+        let project_a = storage
+            .get_contributions(None, Some("https://github.com/a"))
+            .unwrap();
+        assert_eq!(project_a.len(), 2);
+
+        let project_a_stars = storage
+            .get_contributions(
+                Some(&ContributionRecordKind::Star),
+                Some("https://github.com/a"),
+            )
+            .unwrap();
+        assert_eq!(project_a_stars.len(), 1);
+    }
+
+    #[test]
+    fn get_contributions_empty() {
+        let storage = open_memory();
+        let contributions = storage.get_contributions(None, None).unwrap();
+        assert!(contributions.is_empty());
+    }
+
+    #[test]
+    fn contributions_since_filters_by_date() {
+        let storage = open_memory();
+        let old = Utc::now() - Duration::days(30);
+        let recent = Utc::now() - Duration::hours(1);
+
+        storage
+            .save_contribution(
+                "https://github.com/old",
+                &ContributionRecordKind::Star,
+                None,
+                None,
+                old,
+                None,
+            )
+            .unwrap();
+        storage
+            .save_contribution(
+                "https://github.com/new",
+                &ContributionRecordKind::Issue,
+                Some("Recent issue"),
+                None,
+                recent,
+                None,
+            )
+            .unwrap();
+
+        let contributions = storage
+            .contributions_since(Utc::now() - Duration::days(7))
+            .unwrap();
+
+        assert_eq!(contributions.len(), 1);
+        assert_eq!(contributions[0].project_url, "https://github.com/new");
+        assert_eq!(contributions[0].kind, ContributionRecordKind::Issue);
+    }
+
+    #[test]
+    fn contributions_since_empty() {
+        let storage = open_memory();
+        let contributions = storage
+            .contributions_since(Utc::now() - Duration::days(30))
+            .unwrap();
+        assert!(contributions.is_empty());
+    }
+
+    #[test]
+    fn has_contribution_true() {
+        let storage = open_memory();
+        storage
+            .save_contribution(
+                "https://github.com/example",
+                &ContributionRecordKind::Star,
+                None,
+                None,
+                Utc::now(),
+                None,
+            )
+            .unwrap();
+
+        assert!(
+            storage
+                .has_contribution("https://github.com/example", &ContributionRecordKind::Star)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn has_contribution_false() {
+        let storage = open_memory();
+        assert!(
+            !storage
+                .has_contribution("https://github.com/example", &ContributionRecordKind::Star)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn has_contribution_different_kind() {
+        let storage = open_memory();
+        storage
+            .save_contribution(
+                "https://github.com/example",
+                &ContributionRecordKind::Star,
+                None,
+                None,
+                Utc::now(),
+                None,
+            )
+            .unwrap();
+
+        assert!(
+            !storage
+                .has_contribution("https://github.com/example", &ContributionRecordKind::Issue)
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn import_donations_as_contributions_basic() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        storage
+            .save_donation(
+                "https://github.com/project-a",
+                10.0,
+                "USD",
+                now,
+                Some("GitHub Sponsors"),
+                None,
+            )
+            .unwrap();
+        storage
+            .save_donation(
+                "https://github.com/project-b",
+                25.0,
+                "EUR",
+                now - Duration::hours(1),
+                None,
+                None,
+            )
+            .unwrap();
+
+        let imported = storage.import_donations_as_contributions().unwrap();
+        assert_eq!(imported, 2);
+
+        let contributions = storage
+            .get_contributions(Some(&ContributionRecordKind::Donation), None)
+            .unwrap();
+        assert_eq!(contributions.len(), 2);
+        assert_eq!(contributions[0].source, Some("donation_import".to_string()));
+        assert_eq!(contributions[0].title, Some("25 EUR".to_string()));
+        assert_eq!(
+            contributions[1].title,
+            Some("10 USD via GitHub Sponsors".to_string())
+        );
+    }
+
+    #[test]
+    fn import_donations_is_idempotent() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        storage
+            .save_donation("https://github.com/example", 10.0, "USD", now, None, None)
+            .unwrap();
+
+        let first = storage.import_donations_as_contributions().unwrap();
+        assert_eq!(first, 1);
+
+        let second = storage.import_donations_as_contributions().unwrap();
+        assert_eq!(second, 0);
+
+        // Should still be just one contribution record
+        let contributions = storage
+            .get_contributions(Some(&ContributionRecordKind::Donation), None)
+            .unwrap();
+        assert_eq!(contributions.len(), 1);
+    }
+
+    #[test]
+    fn import_donations_empty() {
+        let storage = open_memory();
+        let imported = storage.import_donations_as_contributions().unwrap();
+        assert_eq!(imported, 0);
     }
 
     // --- Backward-compatible deserialization test ---
