@@ -41,6 +41,10 @@ enum Commands {
         /// Maximum number of projects to display (0 for all)
         #[arg(long, default_value = "20")]
         limit: usize,
+
+        /// Scan only — save results to the database without printing the summary table
+        #[arg(long)]
+        silent: bool,
     },
 
     /// Generate a report from the last scan
@@ -199,8 +203,8 @@ fn main() -> Result<()> {
     let config = Config::load()?;
 
     match cli.command {
-        None => cmd_scan(&config, 20),
-        Some(Commands::Scan { limit }) => cmd_scan(&config, limit),
+        None => cmd_scan(&config, 20, false),
+        Some(Commands::Scan { limit, silent }) => cmd_scan(&config, limit, silent),
         Some(Commands::Report {
             format,
             enrich,
@@ -251,17 +255,20 @@ fn run_scan(config: &Config) -> Result<Vec<InstalledPackage>> {
     Ok(all_packages)
 }
 
-fn cmd_scan(config: &Config, limit: usize) -> Result<()> {
-    let mut all_packages = run_scan(config)?;
+fn cmd_scan(config: &Config, limit: usize, silent: bool) -> Result<()> {
+    let all_packages = run_scan(config)?;
 
-    terminal::sort_packages(&mut all_packages);
-    terminal::print_summary(
-        &all_packages,
-        limit,
-        chrono::Utc::now(),
-        &ContributionMap::new(),
-        &EnrichmentMap::new(),
-    );
+    if !silent {
+        let mut sorted = all_packages;
+        terminal::sort_packages(&mut sorted);
+        terminal::print_summary(
+            &sorted,
+            limit,
+            chrono::Utc::now(),
+            &ContributionMap::new(),
+            &EnrichmentMap::new(),
+        );
+    }
 
     Ok(())
 }
