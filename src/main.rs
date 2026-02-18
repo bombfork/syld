@@ -75,7 +75,8 @@ enum Commands {
         command: Option<ConfigCommands>,
     },
 
-    /// Manage package manager hooks
+    /// Manage package manager hooks (internal plumbing for ALPM hook integration)
+    #[command(hide = true)]
     Hook {
         #[command(subcommand)]
         command: HookCommands,
