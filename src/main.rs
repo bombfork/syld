@@ -57,6 +57,10 @@ enum Commands {
         /// Number of parallel enrichment threads
         #[arg(short = 'j', long)]
         jobs: Option<usize>,
+
+        /// Run scan and enrichment, showing progress, but skip the final report output
+        #[arg(long)]
+        progress_only: bool,
     },
 
     /// Manage the local cache
@@ -161,7 +165,8 @@ fn main() -> Result<()> {
             format,
             force_refresh,
             jobs,
-        }) => cmd_report(&config, &format, force_refresh, jobs),
+            progress_only,
+        }) => cmd_report(&config, &format, force_refresh, jobs, progress_only),
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
@@ -241,6 +246,7 @@ fn cmd_report(
     format: &ReportFormat,
     force_refresh: bool,
     jobs: Option<usize>,
+    progress_only: bool,
 ) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     let scan = storage
@@ -271,6 +277,11 @@ fn cmd_report(
     } else {
         syld::enrich::EnrichmentMap::new()
     };
+
+    if progress_only {
+        return Ok(());
+    }
+
     let contributions = ContributionMap::new();
 
     // Build contribution summary from stored records

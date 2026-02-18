@@ -99,6 +99,19 @@ fn single_source_packages() -> Vec<InstalledPackage> {
 }
 
 #[test]
+fn report_progress_only_suppresses_output() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    seed_scan(data.path());
+
+    syld_with_db(tmp.path(), data.path())
+        .args(["report", "--progress-only"])
+        .assert()
+        .success()
+        .stdout(predicate::str::is_empty());
+}
+
+#[test]
 fn report_no_scan_runs_auto_scan() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
