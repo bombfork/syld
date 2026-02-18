@@ -103,7 +103,7 @@ pub fn run_setup(config: &Config) -> Result<()> {
     if run_report {
         let binary = install::resolve_binary_path()?;
         let status = std::process::Command::new(&binary)
-            .arg("report")
+            .args(["report", "--progress-only"])
             .status()
             .with_context(|| format!("Failed to run {}", binary.display()))?;
 
