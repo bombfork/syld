@@ -111,6 +111,7 @@
 
 pub mod github_good_first_issues;
 pub mod github_sync;
+pub mod suggest;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};

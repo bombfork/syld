@@ -8,6 +8,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use syld::config::Config;
+use syld::contribute::suggest::{self, SuggestionKind};
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
 use syld::hook::{self, HookContext};
@@ -24,7 +25,8 @@ use syld::storage::Storage;
 Workflow:
   1. First time     syld setup
   2. Discover       syld scan
-  3. Review         syld report"
+  3. Review         syld report
+  4. Contribute     syld contribute"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -80,6 +82,17 @@ enum Commands {
     Hook {
         #[command(subcommand)]
         command: HookCommands,
+    },
+
+    /// Suggest actionable ways to support open source projects you depend on
+    Contribute {
+        /// Number of suggestions to show
+        #[arg(short, default_value = "3")]
+        n: usize,
+
+        /// Comma-separated contribution types to include (star, issue, donate, docs, spread)
+        #[arg(long = "type", value_name = "TYPES")]
+        types: Option<String>,
     },
 
     /// Interactive first-time setup wizard
@@ -171,6 +184,7 @@ fn main() -> Result<()> {
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
+        Some(Commands::Contribute { n, types }) => cmd_contribute(&config, n, types.as_deref()),
         Some(Commands::Setup) => cmd_setup(&config),
         Some(Commands::Install { command }) => cmd_install(&command),
     }
@@ -325,6 +339,32 @@ fn cmd_report(
         }
     }
 
+    Ok(())
+}
+
+fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> {
+    let _filter: Vec<SuggestionKind> = match types {
+        Some(input) => suggest::parse_types(input).map_err(|e| anyhow::anyhow!(e))?,
+        None => SuggestionKind::ALL.to_vec(),
+    };
+
+    let storage = Storage::open().context("Failed to open database")?;
+    let scan = storage
+        .latest_scan()
+        .context("Failed to read latest scan")?;
+
+    if scan.is_none() {
+        eprintln!("No scan data found. Run `syld scan` first.");
+        return Ok(());
+    }
+
+    // TODO(#87): Generate suggestions from scan/enrichment data
+    // TODO(#88): Filter completed contributions, randomize, and format output
+
+    let _ = (config, n);
+    eprintln!(
+        "No suggestions available. Run `syld report` with enrichment enabled to populate project data."
+    );
     Ok(())
 }
 
