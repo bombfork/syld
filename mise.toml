@@ -31,3 +31,111 @@ run = "cargo test"
 [tasks.check]
 description = "Run all checks (format, lint, build, test)"
 depends = ["fmt:check", "lint:check", "build", "test"]
+
+[tasks.release]
+description = "Prepare a release: bump version, create PR, wait for merge, tag & push"
+usage = '''
+flag "--major" help="Bump the major version"
+flag "--minor" help="Bump the minor version"
+flag "--patch" help="Bump the patch version"
+'''
+run = '''
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Validate flags ---
+count=0
+[[ "${usage_major}" == "true" ]] && count=$((count + 1))
+[[ "${usage_minor}" == "true" ]] && count=$((count + 1))
+[[ "${usage_patch}" == "true" ]] && count=$((count + 1))
+
+if [[ "$count" -ne 1 ]]; then
+  echo "Error: exactly one of --major, --minor, or --patch must be provided" >&2
+  exit 1
+fi
+
+# --- Ensure we are on main and up to date ---
+current_branch=$(git branch --show-current)
+if [[ "$current_branch" != "main" ]]; then
+  echo "Error: must be on the main branch (currently on '$current_branch')" >&2
+  exit 1
+fi
+
+git fetch origin main
+local_sha=$(git rev-parse HEAD)
+remote_sha=$(git rev-parse origin/main)
+if [[ "$local_sha" != "$remote_sha" ]]; then
+  echo "Error: local main is not up to date with origin/main" >&2
+  echo "  local:  $local_sha" >&2
+  echo "  remote: $remote_sha" >&2
+  exit 1
+fi
+
+# --- Compute new version ---
+current_version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+IFS='.' read -r major minor patch <<< "$current_version"
+
+if [[ "${usage_major}" == "true" ]]; then
+  major=$((major + 1)); minor=0; patch=0
+elif [[ "${usage_minor}" == "true" ]]; then
+  minor=$((minor + 1)); patch=0
+else
+  patch=$((patch + 1))
+fi
+
+new_version="${major}.${minor}.${patch}"
+echo "Bumping version: $current_version -> $new_version"
+
+# --- Create release branch ---
+branch="prepare-release-${new_version}"
+git checkout -b "$branch"
+
+# --- Update version in Cargo.toml ---
+sed -i "0,/^version = \"${current_version}\"/s//version = \"${new_version}\"/" Cargo.toml
+
+# --- Update Cargo.lock ---
+cargo generate-lockfile
+
+# --- Commit ---
+git add Cargo.toml Cargo.lock
+git commit -m "chore: bump version to ${new_version}"
+
+# --- Push and create PR ---
+git push -u origin "$branch"
+pr_url=$(gh pr create \
+  --title "chore: release v${new_version}" \
+  --body "Bump version to ${new_version}." \
+  --base main)
+
+echo "PR created: $pr_url"
+
+# --- Enable auto-merge ---
+gh pr merge --auto --squash "$pr_url"
+
+# --- Open PR in browser ---
+xdg-open "$pr_url"
+
+# --- Wait for PR to be merged ---
+echo "Waiting for PR to be merged..."
+while true; do
+  state=$(gh pr view "$pr_url" --json state --jq '.state')
+  if [[ "$state" == "MERGED" ]]; then
+    echo "PR merged!"
+    break
+  fi
+  sleep 10
+done
+
+# --- Switch back to main and update ---
+git checkout main
+git pull origin main
+
+# --- Tag and push ---
+git tag "v${new_version}"
+git push origin "v${new_version}"
+
+# --- Cleanup local branch ---
+git branch -d "$branch"
+
+echo "Release v${new_version} complete!"
+'''
