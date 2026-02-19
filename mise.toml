@@ -45,9 +45,9 @@ set -euo pipefail
 
 # --- Validate flags ---
 count=0
-[[ "${usage_major}" == "true" ]] && count=$((count + 1))
-[[ "${usage_minor}" == "true" ]] && count=$((count + 1))
-[[ "${usage_patch}" == "true" ]] && count=$((count + 1))
+[[ "${usage_major:-false}" == "true" ]] && count=$((count + 1))
+[[ "${usage_minor:-false}" == "true" ]] && count=$((count + 1))
+[[ "${usage_patch:-false}" == "true" ]] && count=$((count + 1))
 
 if [[ "$count" -ne 1 ]]; then
   echo "Error: exactly one of --major, --minor, or --patch must be provided" >&2
@@ -75,9 +75,9 @@ fi
 current_version=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 IFS='.' read -r major minor patch <<< "$current_version"
 
-if [[ "${usage_major}" == "true" ]]; then
+if [[ "${usage_major:-false}" == "true" ]]; then
   major=$((major + 1)); minor=0; patch=0
-elif [[ "${usage_minor}" == "true" ]]; then
+elif [[ "${usage_minor:-false}" == "true" ]]; then
   minor=$((minor + 1)); patch=0
 else
   patch=$((patch + 1))
