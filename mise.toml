@@ -131,7 +131,13 @@ git checkout main
 git pull origin main
 
 # --- Tag and push ---
-git tag "v${new_version}"
+prev_tag=$(git tag --sort=-v:refname | head -n1)
+if [[ -n "$prev_tag" ]]; then
+  tag_message=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+else
+  tag_message=$(git log --pretty=format:"- %s (%h)" --no-merges)
+fi
+git tag -a "v${new_version}" -m "$tag_message"
 git push origin "v${new_version}"
 
 # --- Cleanup local branch ---
