@@ -120,3 +120,53 @@ fn contribute_donate_without_project_no_scan() {
             "No projects with funding channels found",
         ));
 }
+
+#[test]
+fn contribute_help_shows_docs_subcommand() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("docs"));
+}
+
+#[test]
+fn contribute_docs_help_shows_project_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "docs", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--project"));
+}
+
+#[test]
+fn contribute_docs_without_project_no_scan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    // With an empty database and no scan data, it should tell the user to scan first.
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "docs"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "No projects with contributing guides found",
+        ));
+}
+
+#[test]
+fn contribute_docs_with_project_prints_url() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "docs", "--project", "curl/curl"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Contributing guide:"))
+        .stdout(predicate::str::contains(
+            "https://github.com/curl/curl/blob/HEAD/CONTRIBUTING.md",
+        ));
+}
