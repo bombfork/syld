@@ -285,6 +285,38 @@ pub fn format_suggestions(suggestions: &[ContributionSuggestion]) -> String {
     out
 }
 
+/// Format suggestions for hook output (stderr, brief, non-intrusive).
+///
+/// Produces a compact list suitable for display after package manager
+/// transactions:
+///
+/// ```text
+/// syld: 3 ways to support the packages you just installed:
+///
+///   1. ⭐ Star curl/curl on GitHub
+///      https://github.com/curl/curl
+///
+/// Run `syld contribute` for more suggestions.
+/// ```
+pub fn format_hook_suggestions(suggestions: &[ContributionSuggestion]) -> String {
+    let count = suggestions.len();
+    if count == 0 {
+        return String::new();
+    }
+
+    let noun = if count == 1 { "way" } else { "ways" };
+    let mut out = format!("\nsyld: {count} {noun} to support the packages you just installed:\n");
+
+    for (i, s) in suggestions.iter().enumerate() {
+        let num = i + 1;
+        let emoji = s.kind.emoji();
+        out.push_str(&format!("\n  {num}. {emoji} {}\n     {}\n", s.title, s.url));
+    }
+
+    out.push_str("\nRun `syld contribute` for more suggestions.\n");
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,5 +660,38 @@ mod tests {
         assert!(output.contains("  1."));
         assert!(output.contains("  2."));
         assert!(output.contains("     https://"));
+    }
+
+    // -- format_hook_suggestions tests --
+
+    #[test]
+    fn format_hook_suggestions_empty() {
+        assert_eq!(format_hook_suggestions(&[]), String::new());
+    }
+
+    #[test]
+    fn format_hook_suggestions_has_hook_header_and_footer() {
+        let suggestions = vec![ContributionSuggestion {
+            kind: SuggestionKind::Star,
+            title: "Star curl/curl on GitHub".to_string(),
+            url: "https://github.com/curl/curl".to_string(),
+        }];
+        let output = format_hook_suggestions(&suggestions);
+        assert!(output.contains("syld: 1 way to support the packages you just installed:"));
+        assert!(output.contains("Run `syld contribute` for more suggestions."));
+    }
+
+    #[test]
+    fn format_hook_suggestions_multiple() {
+        let suggestions = vec![
+            make_suggestion(SuggestionKind::Star, "a"),
+            make_suggestion(SuggestionKind::Donate, "b"),
+            make_suggestion(SuggestionKind::Issue, "c"),
+        ];
+        let output = format_hook_suggestions(&suggestions);
+        assert!(output.contains("3 ways to support"));
+        assert!(output.contains("1. ⭐"));
+        assert!(output.contains("2. 💰"));
+        assert!(output.contains("3. 🐛"));
     }
 }
