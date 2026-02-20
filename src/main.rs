@@ -14,6 +14,7 @@ use syld::contribute::github_sync::is_gh_available;
 use syld::contribute::suggest::{self, SuggestionKind};
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
+use syld::enrich::github::contributing_file_exists;
 use syld::hook::{self, HookContext};
 use syld::install;
 use syld::report::{ContributionMap, ContributionSummary, html, json, terminal};
@@ -179,6 +180,13 @@ enum ContributeCommands {
         #[arg(long)]
         project: Option<String>,
     },
+
+    /// Open or print a project's contributing guide
+    Docs {
+        /// Project URL or GitHub owner/repo (e.g. github.com/curl/curl or curl/curl)
+        #[arg(long)]
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -222,6 +230,7 @@ fn main() -> Result<()> {
             Some(ContributeCommands::Donate { project }) => {
                 cmd_contribute_donate(project.as_deref())
             }
+            Some(ContributeCommands::Docs { project }) => cmd_contribute_docs(project.as_deref()),
         },
         Some(Commands::Setup) => cmd_setup(&config),
         Some(Commands::Install { command }) => cmd_install(&command),
@@ -738,6 +747,90 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
             funding.first().map(|f| f.url.as_str()),
             chrono::Utc::now(),
             Some("contribute_donate"),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
+    let storage = Storage::open().context("Failed to open database")?;
+
+    let (project_url, contributing_url) = match project {
+        Some(input) => {
+            let (repo_url, owner_repo) = resolve_github_project(input)?;
+
+            // Look up the project in the database for a known contributing URL
+            let projects = storage.all_projects().context("Failed to load projects")?;
+            let found = projects.iter().find(|p| {
+                p.repo_url.as_deref() == Some(&repo_url)
+                    || p.homepage.as_deref() == Some(input)
+                    || p.name.eq_ignore_ascii_case(input)
+            });
+
+            let url = found.and_then(|p| p.contributing_url.clone());
+
+            let url = match url {
+                Some(u) => u,
+                None => {
+                    // No known contributing URL — verify the file exists before
+                    // sending the user to a potentially dead link.
+                    if is_gh_available() && !contributing_file_exists(&owner_repo) {
+                        println!(
+                            "{owner_repo} does not have a CONTRIBUTING.md yet — \
+                             creating one would be a great first contribution!"
+                        );
+                        return Ok(());
+                    }
+                    format!("https://github.com/{owner_repo}/blob/HEAD/CONTRIBUTING.md")
+                }
+            };
+
+            (repo_url, url)
+        }
+        None => {
+            // Pick a random project with a contributing guide from the database
+            let projects = storage.all_projects().context("Failed to load projects")?;
+            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+
+            let suggestions =
+                suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Docs]);
+
+            if suggestions.is_empty() {
+                eprintln!(
+                    "No projects with contributing guides found. Run `syld report` to discover projects."
+                );
+                return Ok(());
+            }
+
+            let picked = suggest::pick_random(suggestions, 1);
+            let suggestion = &picked[0];
+
+            let project_url = projects
+                .iter()
+                .find(|p| p.contributing_url.as_deref() == Some(&suggestion.url))
+                .and_then(|p| p.repo_url.clone())
+                .unwrap_or_else(|| suggestion.url.clone());
+
+            (project_url, suggestion.url.clone())
+        }
+    };
+
+    println!("Contributing guide:");
+    println!("  {contributing_url}");
+
+    // Record the contribution in the database
+    if !storage
+        .has_contribution(&project_url, &ContributionRecordKind::Docs)
+        .unwrap_or(false)
+    {
+        storage.save_contribution(
+            &project_url,
+            &ContributionRecordKind::Docs,
+            None,
+            Some(&contributing_url),
+            chrono::Utc::now(),
+            Some("contribute_docs"),
         )?;
     }
 
