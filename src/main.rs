@@ -343,7 +343,7 @@ fn cmd_report(
 }
 
 fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> {
-    let _filter: Vec<SuggestionKind> = match types {
+    let filter: Vec<SuggestionKind> = match types {
         Some(input) => suggest::parse_types(input).map_err(|e| anyhow::anyhow!(e))?,
         None => SuggestionKind::ALL.to_vec(),
     };
@@ -358,13 +358,29 @@ fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> 
         return Ok(());
     }
 
-    // TODO(#87): Generate suggestions from scan/enrichment data
-    // TODO(#88): Filter completed contributions, randomize, and format output
+    // Load enriched project data from the database.
+    let projects = storage.all_projects().context("Failed to load projects")?;
+    if projects.is_empty() {
+        eprintln!(
+            "No enriched project data found. Run `syld report` with enrichment enabled to populate project data."
+        );
+        return Ok(());
+    }
+
+    // Load existing contributions to filter already-completed actions.
+    let contributions = storage.get_contributions(None, None).unwrap_or_default();
+
+    // Generate suggestions from enrichment data.
+    let suggestions = suggest::generate_suggestions(&projects, &contributions, &filter);
+
+    if suggestions.is_empty() {
+        eprintln!("No suggestions available for the selected types.");
+        return Ok(());
+    }
+
+    // TODO(#88): Randomize, limit to n, and format output
 
     let _ = (config, n);
-    eprintln!(
-        "No suggestions available. Run `syld report` with enrichment enabled to populate project data."
-    );
     Ok(())
 }
 

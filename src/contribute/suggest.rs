@@ -5,10 +5,14 @@
 //! This module defines the types used to generate actionable suggestions
 //! from scan and enrichment data.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+
+use super::{ContributionRecord, ContributionRecordKind};
+use crate::project::UpstreamProject;
 
 /// The category of a contribution suggestion.
 ///
@@ -99,9 +103,331 @@ pub fn parse_types(input: &str) -> Result<Vec<SuggestionKind>, String> {
     input.split(',').map(|s| s.trim().parse()).collect()
 }
 
+/// Star count threshold below which a project is considered "lesser-known"
+/// for spread suggestions.
+const SPREAD_STAR_THRESHOLD: u64 = 1000;
+
+type Generator = fn(&UpstreamProject) -> Option<ContributionSuggestion>;
+
+/// Generate all contribution suggestions from enriched project data, filtered
+/// against already-completed contributions.
+///
+/// Each generator inspects the enrichment fields on [`UpstreamProject`] and
+/// produces suggestions for a single [`SuggestionKind`]. Results from all
+/// generators are collected into one flat list.
+pub fn generate_suggestions(
+    projects: &[UpstreamProject],
+    contributions: &[ContributionRecord],
+    filter: &[SuggestionKind],
+) -> Vec<ContributionSuggestion> {
+    let starred: HashSet<&str> = contributions
+        .iter()
+        .filter(|c| c.kind == ContributionRecordKind::Star)
+        .map(|c| c.project_url.as_str())
+        .collect();
+
+    let donated: HashSet<&str> = contributions
+        .iter()
+        .filter(|c| c.kind == ContributionRecordKind::Donation)
+        .map(|c| c.project_url.as_str())
+        .collect();
+
+    let docs_contributed: HashSet<&str> = contributions
+        .iter()
+        .filter(|c| c.kind == ContributionRecordKind::Docs)
+        .map(|c| c.project_url.as_str())
+        .collect();
+
+    let filter_set: HashSet<SuggestionKind> = filter.iter().copied().collect();
+
+    let generators: &[(SuggestionKind, Generator)] = &[
+        (SuggestionKind::Star, generate_star),
+        (SuggestionKind::Issue, generate_issue),
+        (SuggestionKind::Donate, generate_donate),
+        (SuggestionKind::Docs, generate_docs),
+        (SuggestionKind::Spread, generate_spread),
+    ];
+
+    let mut suggestions = Vec::new();
+
+    for project in projects {
+        let project_url = match &project.repo_url {
+            Some(url) => url.as_str(),
+            None => continue,
+        };
+
+        for &(kind, generator) in generators {
+            if !filter_set.contains(&kind) {
+                continue;
+            }
+
+            // Skip if the user already made this kind of contribution
+            let dominated = match kind {
+                SuggestionKind::Star => starred.contains(project_url),
+                SuggestionKind::Donate => donated.contains(project_url),
+                SuggestionKind::Docs => docs_contributed.contains(project_url),
+                // Issue and Spread are always fresh suggestions
+                _ => false,
+            };
+            if dominated {
+                continue;
+            }
+
+            if let Some(suggestion) = generator(project) {
+                suggestions.push(suggestion);
+            }
+        }
+    }
+
+    suggestions
+}
+
+/// Suggest starring a GitHub project.
+fn generate_star(project: &UpstreamProject) -> Option<ContributionSuggestion> {
+    let repo_url = project.repo_url.as_ref()?;
+    if !repo_url.contains("github.com") {
+        return None;
+    }
+    Some(ContributionSuggestion {
+        kind: SuggestionKind::Star,
+        title: format!("Star {} on GitHub", project.name),
+        url: repo_url.clone(),
+    })
+}
+
+/// Suggest checking good first issues on a project.
+fn generate_issue(project: &UpstreamProject) -> Option<ContributionSuggestion> {
+    let url = project.good_first_issues_url.as_ref()?;
+    Some(ContributionSuggestion {
+        kind: SuggestionKind::Issue,
+        title: format!("Check good first issues on {}", project.name),
+        url: url.clone(),
+    })
+}
+
+/// Suggest donating to a project via its first funding channel.
+fn generate_donate(project: &UpstreamProject) -> Option<ContributionSuggestion> {
+    let channel = project.funding.first()?;
+    Some(ContributionSuggestion {
+        kind: SuggestionKind::Donate,
+        title: format!("Donate to {} via {}", project.name, channel.platform),
+        url: channel.url.clone(),
+    })
+}
+
+/// Suggest improving documentation for a project with a contributing guide.
+fn generate_docs(project: &UpstreamProject) -> Option<ContributionSuggestion> {
+    let url = project.contributing_url.as_ref()?;
+    Some(ContributionSuggestion {
+        kind: SuggestionKind::Docs,
+        title: format!("Improve documentation for {}", project.name),
+        url: url.clone(),
+    })
+}
+
+/// Suggest sharing a lesser-known project (below the star threshold).
+fn generate_spread(project: &UpstreamProject) -> Option<ContributionSuggestion> {
+    let repo_url = project.repo_url.as_ref()?;
+    if !repo_url.contains("github.com") {
+        return None;
+    }
+    let stars = project.stars?;
+    if stars >= SPREAD_STAR_THRESHOLD {
+        return None;
+    }
+    Some(ContributionSuggestion {
+        kind: SuggestionKind::Spread,
+        title: format!(
+            "Share {} — a lesser-known project with {} stars",
+            project.name, stars
+        ),
+        url: repo_url.clone(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::project::FundingChannel;
+    use chrono::Utc;
+
+    fn sample_project() -> UpstreamProject {
+        UpstreamProject {
+            name: "test-project".to_string(),
+            repo_url: Some("https://github.com/example/test-project".to_string()),
+            homepage: None,
+            licenses: vec![],
+            funding: vec![],
+            bug_tracker: None,
+            contributing_url: None,
+            is_open_source: None,
+            documentation_url: None,
+            good_first_issues_url: None,
+            stars: None,
+        }
+    }
+
+    fn star_record(project_url: &str) -> ContributionRecord {
+        ContributionRecord {
+            id: 1,
+            project_url: project_url.to_string(),
+            kind: ContributionRecordKind::Star,
+            title: None,
+            url: None,
+            contributed_at: Utc::now(),
+            source: None,
+        }
+    }
+
+    #[test]
+    fn generate_star_github_project() {
+        let project = sample_project();
+        let s = generate_star(&project).unwrap();
+        assert_eq!(s.kind, SuggestionKind::Star);
+        assert!(s.title.contains("test-project"));
+        assert!(s.url.contains("github.com"));
+    }
+
+    #[test]
+    fn generate_star_skips_non_github() {
+        let mut project = sample_project();
+        project.repo_url = Some("https://gitlab.com/example/repo".to_string());
+        assert!(generate_star(&project).is_none());
+    }
+
+    #[test]
+    fn generate_star_skips_no_repo() {
+        let mut project = sample_project();
+        project.repo_url = None;
+        assert!(generate_star(&project).is_none());
+    }
+
+    #[test]
+    fn generate_issue_with_good_first_issues() {
+        let mut project = sample_project();
+        project.good_first_issues_url =
+            Some("https://github.com/example/repo/issues?q=label:good+first+issue".to_string());
+        let s = generate_issue(&project).unwrap();
+        assert_eq!(s.kind, SuggestionKind::Issue);
+        assert!(s.title.contains("good first issues"));
+    }
+
+    #[test]
+    fn generate_issue_skips_no_url() {
+        let project = sample_project();
+        assert!(generate_issue(&project).is_none());
+    }
+
+    #[test]
+    fn generate_donate_with_funding() {
+        let mut project = sample_project();
+        project.funding = vec![FundingChannel {
+            platform: "Open Collective".to_string(),
+            url: "https://opencollective.com/test".to_string(),
+        }];
+        let s = generate_donate(&project).unwrap();
+        assert_eq!(s.kind, SuggestionKind::Donate);
+        assert!(s.title.contains("Open Collective"));
+        assert_eq!(s.url, "https://opencollective.com/test");
+    }
+
+    #[test]
+    fn generate_donate_skips_no_funding() {
+        let project = sample_project();
+        assert!(generate_donate(&project).is_none());
+    }
+
+    #[test]
+    fn generate_docs_with_contributing_url() {
+        let mut project = sample_project();
+        project.contributing_url =
+            Some("https://github.com/example/repo/blob/main/CONTRIBUTING.md".to_string());
+        let s = generate_docs(&project).unwrap();
+        assert_eq!(s.kind, SuggestionKind::Docs);
+        assert!(s.title.contains("documentation"));
+    }
+
+    #[test]
+    fn generate_docs_skips_no_url() {
+        let project = sample_project();
+        assert!(generate_docs(&project).is_none());
+    }
+
+    #[test]
+    fn generate_spread_low_stars() {
+        let mut project = sample_project();
+        project.stars = Some(50);
+        let s = generate_spread(&project).unwrap();
+        assert_eq!(s.kind, SuggestionKind::Spread);
+        assert!(s.title.contains("50 stars"));
+    }
+
+    #[test]
+    fn generate_spread_skips_popular() {
+        let mut project = sample_project();
+        project.stars = Some(5000);
+        assert!(generate_spread(&project).is_none());
+    }
+
+    #[test]
+    fn generate_spread_skips_no_stars() {
+        let project = sample_project();
+        assert!(generate_spread(&project).is_none());
+    }
+
+    #[test]
+    fn generate_spread_skips_non_github() {
+        let mut project = sample_project();
+        project.repo_url = Some("https://gitlab.com/example/repo".to_string());
+        project.stars = Some(50);
+        assert!(generate_spread(&project).is_none());
+    }
+
+    #[test]
+    fn generate_suggestions_filters_already_starred() {
+        let project = sample_project();
+        let contributions = vec![star_record("https://github.com/example/test-project")];
+        let suggestions = generate_suggestions(&[project], &contributions, &[SuggestionKind::Star]);
+        assert!(suggestions.is_empty());
+    }
+
+    #[test]
+    fn generate_suggestions_includes_unstarred() {
+        let project = sample_project();
+        let suggestions = generate_suggestions(&[project], &[], &[SuggestionKind::Star]);
+        assert_eq!(suggestions.len(), 1);
+        assert_eq!(suggestions[0].kind, SuggestionKind::Star);
+    }
+
+    #[test]
+    fn generate_suggestions_respects_type_filter() {
+        let mut project = sample_project();
+        project.good_first_issues_url = Some("https://example.com/issues".to_string());
+        // Only ask for Star, not Issue
+        let suggestions = generate_suggestions(&[project], &[], &[SuggestionKind::Star]);
+        assert!(suggestions.iter().all(|s| s.kind == SuggestionKind::Star));
+    }
+
+    #[test]
+    fn generate_suggestions_multiple_types() {
+        let mut project = sample_project();
+        project.good_first_issues_url = Some("https://example.com/issues".to_string());
+        project.funding = vec![FundingChannel {
+            platform: "GitHub Sponsors".to_string(),
+            url: "https://github.com/sponsors/test".to_string(),
+        }];
+        let suggestions = generate_suggestions(&[project], &[], SuggestionKind::ALL);
+        let kinds: HashSet<SuggestionKind> = suggestions.iter().map(|s| s.kind).collect();
+        assert!(kinds.contains(&SuggestionKind::Star));
+        assert!(kinds.contains(&SuggestionKind::Issue));
+        assert!(kinds.contains(&SuggestionKind::Donate));
+    }
+
+    #[test]
+    fn generate_suggestions_empty_projects() {
+        let suggestions = generate_suggestions(&[], &[], SuggestionKind::ALL);
+        assert!(suggestions.is_empty());
+    }
 
     #[test]
     fn suggestion_kind_display_roundtrip() {
