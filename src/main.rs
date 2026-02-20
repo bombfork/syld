@@ -165,6 +165,13 @@ enum ContributeCommands {
         #[arg(long)]
         project: Option<String>,
     },
+
+    /// List good first issues for a project on GitHub
+    Issue {
+        /// Project URL or GitHub owner/repo (e.g. github.com/curl/curl or curl/curl)
+        #[arg(long)]
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -204,6 +211,7 @@ fn main() -> Result<()> {
         Some(Commands::Contribute { n, types, command }) => match command {
             None => cmd_contribute(&config, n, types.as_deref()),
             Some(ContributeCommands::Star { project }) => cmd_contribute_star(project.as_deref()),
+            Some(ContributeCommands::Issue { project }) => cmd_contribute_issue(project.as_deref()),
         },
         Some(Commands::Setup) => cmd_setup(&config),
         Some(Commands::Install { command }) => cmd_install(&command),
@@ -514,6 +522,122 @@ fn cmd_contribute_star(project: Option<&str>) -> Result<()> {
             None,
             chrono::Utc::now(),
             Some("contribute_star"),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
+    let (repo_url, owner_repo) = match project {
+        Some(input) => resolve_github_project(input)?,
+        None => {
+            // Pick a random project with good first issues from the database
+            let storage = Storage::open().context("Failed to open database")?;
+            let projects = storage.all_projects().context("Failed to load projects")?;
+            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+
+            let suggestions =
+                suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Issue]);
+
+            if suggestions.is_empty() {
+                eprintln!(
+                    "No projects with good first issues found. Run `syld report` to discover projects."
+                );
+                return Ok(());
+            }
+
+            let picked = suggest::pick_random(suggestions, 1);
+            let suggestion = &picked[0];
+
+            let owner_repo = extract_github_owner_repo(&suggestion.url)
+                .ok_or_else(|| anyhow::anyhow!("Invalid GitHub URL in suggestion"))?;
+            (suggestion.url.clone(), owner_repo)
+        }
+    };
+
+    if is_gh_available() {
+        // List good first issues via gh CLI
+        let output = Command::new("gh")
+            .args([
+                "issue",
+                "list",
+                "--repo",
+                &owner_repo,
+                "--label",
+                "good first issue",
+                "--state",
+                "open",
+                "--limit",
+                "10",
+                "--json",
+                "title,url,labels",
+            ])
+            .output()
+            .context("Failed to run gh issue list")?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8(output.stdout)
+                .context("gh issue list output is not valid UTF-8")?;
+
+            #[derive(serde::Deserialize)]
+            struct GhIssue {
+                title: String,
+                url: String,
+            }
+
+            let issues: Vec<GhIssue> =
+                serde_json::from_str(&stdout).context("Failed to parse gh issue list JSON")?;
+
+            if issues.is_empty() {
+                println!("No good first issues found for {owner_repo}");
+                println!("  Browse all issues: https://github.com/{owner_repo}/issues");
+            } else {
+                println!(
+                    "Good first issues for {owner_repo} ({} found):\n",
+                    issues.len()
+                );
+                for (i, issue) in issues.iter().enumerate() {
+                    println!("  {}. {}", i + 1, issue.title);
+                    println!("     {}", issue.url);
+                }
+            }
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("Could not resolve")
+                || stderr.contains("not found")
+                || stderr.contains("403")
+            {
+                println!("Could not access issues for {owner_repo}");
+                println!(
+                    "  Browse issues: https://github.com/{owner_repo}/issues?q=label:%22good+first+issue%22"
+                );
+            } else {
+                anyhow::bail!("Failed to list issues for {owner_repo}: {stderr}");
+            }
+        }
+    } else {
+        // Fallback: print the URL
+        println!("Good first issues for {owner_repo}:");
+        println!("  https://github.com/{owner_repo}/issues?q=label:%22good+first+issue%22");
+        eprintln!(
+            "\nTip: install and authenticate the `gh` CLI to list issues directly from the terminal."
+        );
+    }
+
+    // Record the contribution in the database
+    let storage = Storage::open().context("Failed to open database")?;
+    if !storage
+        .has_contribution(&repo_url, &ContributionRecordKind::Issue)
+        .unwrap_or(false)
+    {
+        storage.save_contribution(
+            &repo_url,
+            &ContributionRecordKind::Issue,
+            None,
+            None,
+            chrono::Utc::now(),
+            Some("contribute_issue"),
         )?;
     }
 

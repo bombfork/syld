@@ -189,6 +189,7 @@ pub fn enrich_packages(
         let cache_key = base_project.repo_url.as_deref().unwrap_or(normalized_url);
 
         if !force_refresh && let Ok(Some(cached)) = storage.get_enrichment(cache_key) {
+            let _ = storage.save_project(&cached);
             enrichment_map.insert(normalized_url.clone(), cached);
             pb.inc(1);
             continue;
@@ -250,6 +251,12 @@ pub fn enrich_packages(
                 "Warning: failed to cache enrichment for {}: {e}",
                 enriched.name
             );
+        }
+        if let Err(e) = storage.save_project(&enriched) {
+            // Projects without a URL are expected to fail; only warn for other errors.
+            if enriched.repo_url.is_some() || enriched.homepage.is_some() {
+                eprintln!("Warning: failed to save project {}: {e}", enriched.name);
+            }
         }
         enrichment_map.insert(normalized_url, enriched);
     }

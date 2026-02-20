@@ -48,3 +48,39 @@ fn contribute_star_without_project_no_scan() {
             "No unstarred GitHub projects found",
         ));
 }
+
+#[test]
+fn contribute_help_shows_issue_subcommand() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("issue"));
+}
+
+#[test]
+fn contribute_issue_help_shows_project_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "issue", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--project"));
+}
+
+#[test]
+fn contribute_issue_without_project_no_scan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    // With an empty database and no scan data, it should tell the user to scan first.
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "issue"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "No projects with good first issues found",
+        ));
+}
