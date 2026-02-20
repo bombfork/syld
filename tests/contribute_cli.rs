@@ -161,7 +161,11 @@ fn contribute_docs_without_project_no_scan() {
 fn contribute_docs_with_project_prints_url() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
+    // Unset GitHub tokens so `is_gh_available()` returns false, avoiding
+    // flaky API calls in CI where GITHUB_TOKEN is set automatically.
     syld_with_db(tmp.path(), data.path())
+        .env_remove("GH_TOKEN")
+        .env_remove("GITHUB_TOKEN")
         .args(["contribute", "docs", "--project", "curl/curl"])
         .assert()
         .success()
