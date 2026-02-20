@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+use std::path::Path;
+
+use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin_cmd;
+use predicates::prelude::*;
+
+fn syld_with_db(config_home: &Path, data_home: &Path) -> Command {
+    let mut cmd: Command = cargo_bin_cmd!("syld").into();
+    cmd.env("XDG_CONFIG_HOME", config_home);
+    cmd.env("XDG_DATA_HOME", data_home);
+    cmd
+}
+
+#[test]
+fn contribute_help_shows_star_subcommand() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("star"));
+}
+
+#[test]
+fn contribute_star_help_shows_project_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "star", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--project"));
+}
+
+#[test]
+fn contribute_star_without_project_no_scan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    // With an empty database and no scan data, it should tell the user to scan first.
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "star"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "No unstarred GitHub projects found",
+        ));
+}

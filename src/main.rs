@@ -8,6 +8,9 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use syld::config::Config;
+use syld::contribute::ContributionRecordKind;
+use syld::contribute::github_good_first_issues::extract_github_owner_repo;
+use syld::contribute::github_sync::is_gh_available;
 use syld::contribute::suggest::{self, SuggestionKind};
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
@@ -85,6 +88,7 @@ enum Commands {
     },
 
     /// Suggest actionable ways to support open source projects you depend on
+    #[command(args_conflicts_with_subcommands = true)]
     Contribute {
         /// Number of suggestions to show
         #[arg(short, default_value = "3")]
@@ -93,6 +97,9 @@ enum Commands {
         /// Comma-separated contribution types to include (star, issue, donate, docs, spread)
         #[arg(long = "type", value_name = "TYPES")]
         types: Option<String>,
+
+        #[command(subcommand)]
+        command: Option<ContributeCommands>,
     },
 
     /// Interactive first-time setup wizard
@@ -151,6 +158,16 @@ enum InstallCommands {
 }
 
 #[derive(Subcommand)]
+enum ContributeCommands {
+    /// Star a project on GitHub
+    Star {
+        /// Project URL or GitHub owner/repo (e.g. github.com/curl/curl or curl/curl)
+        #[arg(long)]
+        project: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ConfigCommands {
     /// Show current configuration
     Show,
@@ -184,7 +201,10 @@ fn main() -> Result<()> {
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
-        Some(Commands::Contribute { n, types }) => cmd_contribute(&config, n, types.as_deref()),
+        Some(Commands::Contribute { n, types, command }) => match command {
+            None => cmd_contribute(&config, n, types.as_deref()),
+            Some(ContributeCommands::Star { project }) => cmd_contribute_star(project.as_deref()),
+        },
         Some(Commands::Setup) => cmd_setup(&config),
         Some(Commands::Install { command }) => cmd_install(&command),
     }
@@ -385,6 +405,121 @@ fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> 
     Ok(())
 }
 
+/// Normalize a project identifier into a GitHub URL and owner/repo pair.
+///
+/// Accepts:
+/// - `owner/repo` (e.g. `curl/curl`)
+/// - `github.com/owner/repo` (without scheme)
+/// - `https://github.com/owner/repo` (full URL)
+/// - SSH and git:// URLs
+///
+/// Returns `(repo_url, owner_repo)` or an error if the input is not a valid
+/// GitHub project identifier.
+fn resolve_github_project(input: &str) -> Result<(String, String)> {
+    // Try bare owner/repo first (no dots, no slashes beyond the one separator).
+    if !input.contains("://") && !input.contains("github.com") && !input.starts_with("git@") {
+        let parts: Vec<&str> = input.splitn(2, '/').collect();
+        if parts.len() == 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+            let owner_repo = format!("{}/{}", parts[0], parts[1]);
+            let repo_url = format!("https://github.com/{owner_repo}");
+            return Ok((repo_url, owner_repo));
+        }
+    }
+
+    // Try with https:// prefix if no scheme present
+    let url = if !input.contains("://") && !input.starts_with("git@") {
+        format!("https://{input}")
+    } else {
+        input.to_string()
+    };
+
+    let owner_repo = extract_github_owner_repo(&url)
+        .ok_or_else(|| anyhow::anyhow!("Not a valid GitHub project: {input}"))?;
+    let repo_url = format!("https://github.com/{owner_repo}");
+    Ok((repo_url, owner_repo))
+}
+
+fn cmd_contribute_star(project: Option<&str>) -> Result<()> {
+    let (repo_url, owner_repo) = match project {
+        Some(input) => resolve_github_project(input)?,
+        None => {
+            // Pick a random unstarred project from the database
+            let storage = Storage::open().context("Failed to open database")?;
+            let projects = storage.all_projects().context("Failed to load projects")?;
+            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+
+            let suggestions =
+                suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Star]);
+
+            if suggestions.is_empty() {
+                eprintln!(
+                    "No unstarred GitHub projects found. Run `syld report` to discover projects."
+                );
+                return Ok(());
+            }
+
+            let picked = suggest::pick_random(suggestions, 1);
+            let suggestion = &picked[0];
+
+            let owner_repo = extract_github_owner_repo(&suggestion.url)
+                .ok_or_else(|| anyhow::anyhow!("Invalid GitHub URL in suggestion"))?;
+            (suggestion.url.clone(), owner_repo)
+        }
+    };
+
+    if is_gh_available() {
+        // Star via gh API
+        let output = Command::new("gh")
+            .args([
+                "api",
+                &format!("/user/starred/{owner_repo}"),
+                "-X",
+                "PUT",
+                "--silent",
+            ])
+            .output()
+            .context("Failed to run gh api")?;
+
+        if output.status.success() {
+            println!("\u{2b50} Starred {owner_repo} on GitHub");
+            println!("  {repo_url}");
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("422") || stderr.contains("already") {
+                println!("\u{2b50} {owner_repo} is already starred");
+                println!("  {repo_url}");
+            } else {
+                anyhow::bail!("Failed to star {owner_repo}: {stderr}");
+            }
+        }
+    } else {
+        // Fallback: print the URL
+        println!("\u{2b50} Star {owner_repo} on GitHub:");
+        println!("  {repo_url}");
+        eprintln!(
+            "\nTip: install and authenticate the `gh` CLI to star directly from the terminal."
+        );
+    }
+
+    // Record the contribution in the database
+    let storage = Storage::open().context("Failed to open database")?;
+    if !storage
+        .has_contribution(&repo_url, &ContributionRecordKind::Star)
+        .unwrap_or(false)
+    {
+        storage.save_contribution(
+            &repo_url,
+            &ContributionRecordKind::Star,
+            None,
+            None,
+            chrono::Utc::now(),
+            Some("contribute_star"),
+        )?;
+    }
+
+    Ok(())
+}
+
 fn cmd_cache(command: &CacheCommands) -> Result<()> {
     match command {
         CacheCommands::Clear => {
@@ -579,5 +714,60 @@ fn cmd_install_hook(name: Option<&str>) -> Result<()> {
             .context("Failed to read selection")?;
 
         (available[selection].install_fn)()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_bare_owner_repo() {
+        let (url, owner_repo) = resolve_github_project("curl/curl").unwrap();
+        assert_eq!(url, "https://github.com/curl/curl");
+        assert_eq!(owner_repo, "curl/curl");
+    }
+
+    #[test]
+    fn resolve_github_url_without_scheme() {
+        let (url, owner_repo) = resolve_github_project("github.com/curl/curl").unwrap();
+        assert_eq!(url, "https://github.com/curl/curl");
+        assert_eq!(owner_repo, "curl/curl");
+    }
+
+    #[test]
+    fn resolve_full_https_url() {
+        let (url, owner_repo) = resolve_github_project("https://github.com/curl/curl").unwrap();
+        assert_eq!(url, "https://github.com/curl/curl");
+        assert_eq!(owner_repo, "curl/curl");
+    }
+
+    #[test]
+    fn resolve_url_with_trailing_slash() {
+        let (_, owner_repo) = resolve_github_project("https://github.com/curl/curl/").unwrap();
+        assert_eq!(owner_repo, "curl/curl");
+    }
+
+    #[test]
+    fn resolve_url_with_git_suffix() {
+        let (_, owner_repo) = resolve_github_project("https://github.com/curl/curl.git").unwrap();
+        assert_eq!(owner_repo, "curl/curl");
+    }
+
+    #[test]
+    fn resolve_ssh_url() {
+        let (url, owner_repo) = resolve_github_project("git@github.com:curl/curl.git").unwrap();
+        assert_eq!(url, "https://github.com/curl/curl");
+        assert_eq!(owner_repo, "curl/curl");
+    }
+
+    #[test]
+    fn resolve_invalid_input() {
+        assert!(resolve_github_project("not-a-project").is_err());
+    }
+
+    #[test]
+    fn resolve_non_github_url() {
+        assert!(resolve_github_project("https://gitlab.com/owner/repo").is_err());
     }
 }
