@@ -1,5 +1,7 @@
 # syld — Support Your Linux Desktop
 
+[![CI](https://github.com/bombfork/syld/actions/workflows/ci.yml/badge.svg)](https://github.com/bombfork/syld/actions/workflows/ci.yml)
+
 <div align="center">
 
 <img src="https://imgs.xkcd.com/comics/dependency.png" alt="xkcd 2347: Dependency — All modern digital infrastructure held up by a project some random person in Nebraska has been mass maintaining since 2003" width="400">
