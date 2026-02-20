@@ -13,11 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Prepare cache key
+        id: cache-key
+        run: |
+          # Hash Cargo.lock excluding the syld package version line for stable caching
+          HASH=$(grep -n 'name = "syld"' Cargo.lock | head -1 | cut -d: -f1 | xargs -I{} expr {} + 1 | xargs -I{} sed '{}d' Cargo.lock | sha256sum | cut -d' ' -f1)
+          echo "cargo-lock-hash=$HASH" >> "$GITHUB_OUTPUT"
       - uses: jdx/mise-action@v2
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo
             target
-          key: v0-linux-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          key: v0-linux-${{ runner.arch }}-${{ steps.cache-key.outputs.cargo-lock-hash }}
       - run: mise run check
