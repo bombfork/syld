@@ -378,9 +378,10 @@ fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> 
         return Ok(());
     }
 
-    // TODO(#88): Randomize, limit to n, and format output
+    let selected = suggest::pick_random(suggestions, n);
+    print!("{}", suggest::format_suggestions(&selected));
 
-    let _ = (config, n);
+    let _ = config;
     Ok(())
 }
 

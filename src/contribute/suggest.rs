@@ -9,6 +9,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
 use super::{ContributionRecord, ContributionRecordKind};
@@ -243,6 +244,45 @@ fn generate_spread(project: &UpstreamProject) -> Option<ContributionSuggestion> 
         ),
         url: repo_url.clone(),
     })
+}
+
+/// Randomly shuffle and pick up to `n` suggestions.
+pub fn pick_random(
+    mut suggestions: Vec<ContributionSuggestion>,
+    n: usize,
+) -> Vec<ContributionSuggestion> {
+    let mut rng = rand::rng();
+    suggestions.shuffle(&mut rng);
+    suggestions.truncate(n);
+    suggestions
+}
+
+/// Format suggestions for terminal display.
+///
+/// Produces the numbered list described in the `contribute` command spec:
+///
+/// ```text
+/// Here are 3 ways you can support open source today:
+///
+///   1. ⭐ Star curl/curl on GitHub
+///      https://github.com/curl/curl
+/// ```
+pub fn format_suggestions(suggestions: &[ContributionSuggestion]) -> String {
+    let count = suggestions.len();
+    if count == 0 {
+        return String::new();
+    }
+
+    let noun = if count == 1 { "way" } else { "ways" };
+    let mut out = format!("Here are {count} {noun} you can support open source today:\n");
+
+    for (i, s) in suggestions.iter().enumerate() {
+        let num = i + 1;
+        let emoji = s.kind.emoji();
+        out.push_str(&format!("\n  {num}. {emoji} {}\n     {}\n", s.title, s.url));
+    }
+
+    out
 }
 
 #[cfg(test)]
@@ -493,5 +533,100 @@ mod tests {
         assert_eq!(parsed.kind, SuggestionKind::Star);
         assert_eq!(parsed.title, "Star curl/curl on GitHub");
         assert_eq!(parsed.url, "https://github.com/curl/curl");
+    }
+
+    // -- pick_random tests --
+
+    fn make_suggestion(kind: SuggestionKind, name: &str) -> ContributionSuggestion {
+        ContributionSuggestion {
+            kind,
+            title: format!("Action for {name}"),
+            url: format!("https://example.com/{name}"),
+        }
+    }
+
+    #[test]
+    fn pick_random_limits_to_n() {
+        let suggestions = vec![
+            make_suggestion(SuggestionKind::Star, "a"),
+            make_suggestion(SuggestionKind::Issue, "b"),
+            make_suggestion(SuggestionKind::Donate, "c"),
+            make_suggestion(SuggestionKind::Docs, "d"),
+        ];
+        let picked = pick_random(suggestions, 2);
+        assert_eq!(picked.len(), 2);
+    }
+
+    #[test]
+    fn pick_random_returns_all_when_fewer_than_n() {
+        let suggestions = vec![make_suggestion(SuggestionKind::Star, "a")];
+        let picked = pick_random(suggestions, 5);
+        assert_eq!(picked.len(), 1);
+    }
+
+    #[test]
+    fn pick_random_empty_input() {
+        let picked = pick_random(vec![], 3);
+        assert!(picked.is_empty());
+    }
+
+    // -- format_suggestions tests --
+
+    #[test]
+    fn format_suggestions_empty() {
+        assert_eq!(format_suggestions(&[]), String::new());
+    }
+
+    #[test]
+    fn format_suggestions_single() {
+        let suggestions = vec![ContributionSuggestion {
+            kind: SuggestionKind::Star,
+            title: "Star curl/curl on GitHub".to_string(),
+            url: "https://github.com/curl/curl".to_string(),
+        }];
+        let output = format_suggestions(&suggestions);
+        assert!(output.starts_with("Here are 1 way you can support open source today:"));
+        assert!(output.contains("1. ⭐ Star curl/curl on GitHub"));
+        assert!(output.contains("https://github.com/curl/curl"));
+    }
+
+    #[test]
+    fn format_suggestions_multiple() {
+        let suggestions = vec![
+            ContributionSuggestion {
+                kind: SuggestionKind::Star,
+                title: "Star curl/curl on GitHub".to_string(),
+                url: "https://github.com/curl/curl".to_string(),
+            },
+            ContributionSuggestion {
+                kind: SuggestionKind::Donate,
+                title: "Donate to curl via Open Collective".to_string(),
+                url: "https://opencollective.com/curl".to_string(),
+            },
+            ContributionSuggestion {
+                kind: SuggestionKind::Issue,
+                title: "Check good first issues on systemd/systemd".to_string(),
+                url: "https://github.com/systemd/systemd/issues?q=label:\"good first issue\""
+                    .to_string(),
+            },
+        ];
+        let output = format_suggestions(&suggestions);
+        assert!(output.starts_with("Here are 3 ways you can support open source today:"));
+        assert!(output.contains("1. ⭐"));
+        assert!(output.contains("2. 💰"));
+        assert!(output.contains("3. 🐛"));
+    }
+
+    #[test]
+    fn format_suggestions_numbering_and_indentation() {
+        let suggestions = vec![
+            make_suggestion(SuggestionKind::Star, "a"),
+            make_suggestion(SuggestionKind::Issue, "b"),
+        ];
+        let output = format_suggestions(&suggestions);
+        // Check indentation: numbers at 2 spaces, URLs at 5 spaces
+        assert!(output.contains("  1."));
+        assert!(output.contains("  2."));
+        assert!(output.contains("     https://"));
     }
 }
