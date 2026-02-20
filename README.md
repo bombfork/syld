@@ -1,17 +1,28 @@
 # syld — Support Your Linux Desktop
 
-Discover the open source software you use every day and help you support the projects behind it.
+<div align="center">
 
-syld scans your system's package managers, identifies the open source projects you rely on, and helps you find ways to contribute back.
+<img src="https://imgs.xkcd.com/comics/dependency.png" alt="xkcd 2347: Dependency — All modern digital infrastructure held up by a project some random person in Nebraska has been mass maintaining since 2003" width="400">
+
+<em><a href="https://xkcd.com/2347/">xkcd #2347</a></em>
+
+</div>
+
+&nbsp;
+
+Your desktop runs on the quiet work of thousands of open source maintainers — people you've never met, probably in places you've never been. Some random person in Nebraska has been mass maintaining a project since 2003, and your entire digital life might depend on it. You don't know them, but you owe them.
+
+**syld** is here to help you give that person some love.
+
+It scans your system's package managers, figures out which open source projects you actually rely on every day, and helps you find ways to contribute back — whether that's code, documentation, bug reports, or just a thank you.
 
 ## Features
 
-- **Package discovery** — reads local package databases directly (no root needed)
-- **Privacy-first** — all processing is local by default, no network calls unless you opt in
-- **Grouped output** — packages are grouped by upstream project and sorted alphabetically
-- **Pagination** — browse results incrementally with `--limit`
-
-- **Systemd integration** — user-level timer for periodic scans (`syld install service`)
+- **Package discovery** — reads your local package databases directly (no root needed)
+- **Privacy-first** — everything stays on your machine by default, no network calls unless you opt in
+- **Grouped output** — packages are grouped by upstream project so you can see who's behind what
+- **Pagination** — browse results at your own pace with `--limit`
+- **Systemd integration** — set-and-forget periodic scans with a user-level timer (`syld install service`)
 
 ### Supported package managers
 
