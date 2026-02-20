@@ -89,7 +89,7 @@ impl EnrichmentBackend for GitHubBackend {
                         "{html_url}/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22"
                     ));
                 }
-                if enriched.contributing_url.is_none() {
+                if enriched.contributing_url.is_none() && contributing_file_exists(&owner_repo) {
                     enriched.contributing_url =
                         Some(format!("{html_url}/blob/HEAD/CONTRIBUTING.md"));
                 }
@@ -156,6 +156,22 @@ fn fetch_repo_metadata(owner_repo: &str) -> Result<GhRepo> {
     };
 
     Ok(repo)
+}
+
+/// Check whether `CONTRIBUTING.md` exists at the repository root.
+///
+/// Returns `false` when the file is missing or when `gh` is unavailable.
+pub fn contributing_file_exists(owner_repo: &str) -> bool {
+    Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{owner_repo}/contents/CONTRIBUTING.md"),
+            "--cache",
+            "1h",
+        ])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 fn fetch_funding_yml(owner_repo: &str) -> Result<Vec<FundingChannel>> {

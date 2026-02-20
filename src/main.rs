@@ -14,6 +14,7 @@ use syld::contribute::github_sync::is_gh_available;
 use syld::contribute::suggest::{self, SuggestionKind};
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
+use syld::enrich::github::contributing_file_exists;
 use syld::hook::{self, HookContext};
 use syld::install;
 use syld::report::{ContributionMap, ContributionSummary, html, json, terminal};
@@ -767,11 +768,23 @@ fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
                     || p.name.eq_ignore_ascii_case(input)
             });
 
-            let url = found
-                .and_then(|p| p.contributing_url.clone())
-                .unwrap_or_else(|| {
+            let url = found.and_then(|p| p.contributing_url.clone());
+
+            let url = match url {
+                Some(u) => u,
+                None => {
+                    // No known contributing URL — verify the file exists before
+                    // sending the user to a potentially dead link.
+                    if is_gh_available() && !contributing_file_exists(&owner_repo) {
+                        println!(
+                            "{owner_repo} does not have a CONTRIBUTING.md yet — \
+                             creating one would be a great first contribution!"
+                        );
+                        return Ok(());
+                    }
                     format!("https://github.com/{owner_repo}/blob/HEAD/CONTRIBUTING.md")
-                });
+                }
+            };
 
             (repo_url, url)
         }
