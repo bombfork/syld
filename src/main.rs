@@ -199,7 +199,7 @@ enum ConfigCommands {
 
     /// Set a configuration value
     Set {
-        /// Configuration key (e.g. enrich, budget.amount)
+        /// Configuration key (e.g. enrich, enrich_jobs)
         key: String,
 
         /// Value to set

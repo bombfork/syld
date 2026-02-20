@@ -19,9 +19,7 @@ fn config_show_outputs_valid_toml() {
         .args(["config", "show"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("enrich"))
-        .stdout(predicate::str::contains("[budget]"))
-        .stdout(predicate::str::contains("currency"));
+        .stdout(predicate::str::contains("enrich"));
 }
 
 #[test]
@@ -31,9 +29,7 @@ fn config_show_default_values() {
         .args(["config", "show"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("enrich = false"))
-        .stdout(predicate::str::contains("currency = \"USD\""))
-        .stdout(predicate::str::contains("cadence = \"monthly\""));
+        .stdout(predicate::str::contains("enrich = false"));
 }
 
 #[test]
@@ -53,7 +49,7 @@ fn config_show_reflects_custom_config() {
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("config.toml"),
-        "enrich = true\n\n[budget]\namount = 42.0\ncurrency = \"EUR\"\ncadence = \"yearly\"\n",
+        "enrich = true\nenrich_jobs = 12\n",
     )
     .unwrap();
 
@@ -62,9 +58,7 @@ fn config_show_reflects_custom_config() {
         .assert()
         .success()
         .stdout(predicate::str::contains("enrich = true"))
-        .stdout(predicate::str::contains("amount = 42.0"))
-        .stdout(predicate::str::contains("currency = \"EUR\""))
-        .stdout(predicate::str::contains("cadence = \"yearly\""));
+        .stdout(predicate::str::contains("enrich_jobs = 12"));
 }
 
 #[test]
@@ -114,7 +108,7 @@ fn config_edit_preserves_existing_file() {
     let config_dir = tmp.path().join("syld");
     fs::create_dir_all(&config_dir).unwrap();
     let config_path = config_dir.join("config.toml");
-    let custom = "enrich = true\n\n[budget]\namount = 99.0\n";
+    let custom = "enrich = true\nenrich_jobs = 4\n";
     fs::write(&config_path, custom).unwrap();
 
     syld(tmp.path())

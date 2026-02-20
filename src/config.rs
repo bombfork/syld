@@ -9,10 +9,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Config {
-    /// Budget configuration
-    #[serde(default)]
-    pub budget: BudgetConfig,
-
     /// Whether to enable network-based enrichment by default
     #[serde(default)]
     pub enrich: bool,
@@ -20,42 +16,6 @@ pub struct Config {
     /// Number of parallel enrichment threads (default: 4)
     #[serde(default)]
     pub enrich_jobs: Option<usize>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BudgetConfig {
-    /// Monthly budget amount (in user's currency)
-    pub amount: Option<f64>,
-
-    /// Currency code (e.g., "USD", "EUR")
-    #[serde(default = "default_currency")]
-    pub currency: String,
-
-    /// Budget cadence
-    #[serde(default)]
-    pub cadence: Cadence,
-}
-
-impl Default for BudgetConfig {
-    fn default() -> Self {
-        Self {
-            amount: None,
-            currency: default_currency(),
-            cadence: Cadence::default(),
-        }
-    }
-}
-
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Cadence {
-    #[default]
-    Monthly,
-    Yearly,
-}
-
-fn default_currency() -> String {
-    "USD".to_string()
 }
 
 impl Config {
@@ -120,18 +80,10 @@ mod tests {
         let toml = r#"
 enrich = true
 enrich_jobs = 8
-
-[budget]
-amount = 10.0
-currency = "EUR"
-cadence = "yearly"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.enrich);
         assert_eq!(config.enrich_jobs, Some(8));
-        assert_eq!(config.budget.amount, Some(10.0));
-        assert_eq!(config.budget.currency, "EUR");
-        assert!(matches!(config.budget.cadence, Cadence::Yearly));
     }
 
     #[test]
@@ -139,22 +91,6 @@ cadence = "yearly"
         let config: Config = toml::from_str("").unwrap();
         assert!(!config.enrich);
         assert_eq!(config.enrich_jobs, None);
-        assert_eq!(config.budget.amount, None);
-        assert_eq!(config.budget.currency, "USD");
-        assert!(matches!(config.budget.cadence, Cadence::Monthly));
-    }
-
-    #[test]
-    fn parse_partial_config() {
-        let toml = r#"
-[budget]
-amount = 5.0
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.enrich);
-        assert_eq!(config.budget.amount, Some(5.0));
-        assert_eq!(config.budget.currency, "USD");
-        assert!(matches!(config.budget.cadence, Cadence::Monthly));
     }
 
     #[test]

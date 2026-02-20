@@ -2,7 +2,7 @@
 
 //! Local state persistence using SQLite.
 //!
-//! Stores scan results, budget settings, and enrichment cache
+//! Stores scan results, donation history, and enrichment cache
 //! in ~/.local/share/syld/syld.db
 
 use std::path::Path;
@@ -11,11 +11,29 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, params};
 
-use crate::budget::DonationRecord;
-use crate::config::{BudgetConfig, Cadence, Config};
+use crate::config::Config;
 use crate::contribute::{ContributionRecord, ContributionRecordKind};
 use crate::discover::{InstalledPackage, PackageSource};
 use crate::project::{FundingChannel, UpstreamProject};
+
+/// A record of a completed donation.
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct DonationRecord {
+    /// Database row ID
+    pub id: i64,
+    /// URL of the project that received the donation
+    pub project_url: String,
+    /// Amount donated
+    pub amount: f64,
+    /// Currency code (e.g. "USD", "EUR")
+    pub currency: String,
+    /// When the donation was made
+    pub donated_at: chrono::DateTime<chrono::Utc>,
+    /// Funding channel used
+    pub via: Option<String>,
+    /// Free-form notes
+    pub notes: Option<String>,
+}
 
 /// A saved scan with its metadata and packages.
 pub struct ScanRecord {
@@ -78,13 +96,6 @@ impl Storage {
                 project_url TEXT    PRIMARY KEY,
                 data        TEXT    NOT NULL,
                 cached_at   TEXT    NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS budget (
-                id       INTEGER PRIMARY KEY CHECK (id = 1),
-                amount   REAL,
-                currency TEXT    NOT NULL DEFAULT 'USD',
-                cadence  TEXT    NOT NULL DEFAULT 'monthly'
             );
 
             CREATE TABLE IF NOT EXISTS projects (
@@ -277,54 +288,6 @@ impl Storage {
             serde_json::from_str(&data).context("Failed to deserialize cached project")?;
 
         Ok(Some(project))
-    }
-
-    /// Save budget settings (upserts a single row).
-    pub fn save_budget(&self, budget: &BudgetConfig) -> Result<()> {
-        let cadence_str = match budget.cadence {
-            Cadence::Monthly => "monthly",
-            Cadence::Yearly => "yearly",
-        };
-
-        self.conn.execute(
-            "INSERT OR REPLACE INTO budget (id, amount, currency, cadence)
-             VALUES (1, ?1, ?2, ?3)",
-            params![budget.amount, budget.currency, cadence_str],
-        )?;
-
-        Ok(())
-    }
-
-    /// Get the saved budget settings, or `None` if not yet configured.
-    pub fn get_budget(&self) -> Result<Option<BudgetConfig>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT amount, currency, cadence FROM budget WHERE id = 1")?;
-
-        let row = stmt.query_row([], |row| {
-            Ok((
-                row.get::<_, Option<f64>>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        });
-
-        let (amount, currency, cadence_str) = match row {
-            Ok(r) => r,
-            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
-            Err(e) => return Err(e).context("Failed to query budget"),
-        };
-
-        let cadence = match cadence_str.as_str() {
-            "yearly" => Cadence::Yearly,
-            _ => Cadence::Monthly,
-        };
-
-        Ok(Some(BudgetConfig {
-            amount,
-            currency,
-            cadence,
-        }))
     }
 
     // --- Project CRUD ---
@@ -876,7 +839,6 @@ mod tests {
         assert_eq!(count("scans"), 0);
         assert_eq!(count("packages"), 0);
         assert_eq!(count("enrichment_cache"), 0);
-        assert_eq!(count("budget"), 0);
         assert_eq!(count("projects"), 0);
         assert_eq!(count("donation_history"), 0);
         assert_eq!(count("contributions"), 0);
@@ -1071,74 +1033,6 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(loaded.name, "New");
-    }
-
-    // --- Budget tests ---
-
-    #[test]
-    fn save_and_get_budget() {
-        let storage = open_memory();
-        let budget = BudgetConfig {
-            amount: Some(25.0),
-            currency: "EUR".to_string(),
-            cadence: Cadence::Yearly,
-        };
-
-        storage.save_budget(&budget).expect("save budget failed");
-
-        let loaded = storage
-            .get_budget()
-            .expect("get budget failed")
-            .expect("should have budget");
-
-        assert_eq!(loaded.amount, Some(25.0));
-        assert_eq!(loaded.currency, "EUR");
-        assert!(matches!(loaded.cadence, Cadence::Yearly));
-    }
-
-    #[test]
-    fn get_budget_empty() {
-        let storage = open_memory();
-        let result = storage.get_budget().expect("get budget failed");
-        assert!(result.is_none());
-    }
-
-    #[test]
-    fn budget_upsert() {
-        let storage = open_memory();
-
-        let budget1 = BudgetConfig {
-            amount: Some(10.0),
-            currency: "USD".to_string(),
-            cadence: Cadence::Monthly,
-        };
-        storage.save_budget(&budget1).unwrap();
-
-        let budget2 = BudgetConfig {
-            amount: Some(50.0),
-            currency: "GBP".to_string(),
-            cadence: Cadence::Yearly,
-        };
-        storage.save_budget(&budget2).unwrap();
-
-        let loaded = storage.get_budget().unwrap().unwrap();
-        assert_eq!(loaded.amount, Some(50.0));
-        assert_eq!(loaded.currency, "GBP");
-        assert!(matches!(loaded.cadence, Cadence::Yearly));
-    }
-
-    #[test]
-    fn budget_with_no_amount() {
-        let storage = open_memory();
-        let budget = BudgetConfig {
-            amount: None,
-            currency: "USD".to_string(),
-            cadence: Cadence::Monthly,
-        };
-        storage.save_budget(&budget).unwrap();
-
-        let loaded = storage.get_budget().unwrap().unwrap();
-        assert!(loaded.amount.is_none());
     }
 
     // --- Package source round-trip ---
