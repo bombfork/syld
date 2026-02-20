@@ -84,3 +84,39 @@ fn contribute_issue_without_project_no_scan() {
             "No projects with good first issues found",
         ));
 }
+
+#[test]
+fn contribute_help_shows_donate_subcommand() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("donate"));
+}
+
+#[test]
+fn contribute_donate_help_shows_project_flag() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "donate", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--project"));
+}
+
+#[test]
+fn contribute_donate_without_project_no_scan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    // With an empty database and no scan data, it should tell the user to scan first.
+    syld_with_db(tmp.path(), data.path())
+        .args(["contribute", "donate"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "No projects with funding channels found",
+        ));
+}
