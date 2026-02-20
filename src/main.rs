@@ -172,6 +172,13 @@ enum ContributeCommands {
         #[arg(long)]
         project: Option<String>,
     },
+
+    /// Open or print funding/donation links for a project
+    Donate {
+        /// Project URL or GitHub owner/repo (e.g. github.com/curl/curl or curl/curl)
+        #[arg(long)]
+        project: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -212,6 +219,9 @@ fn main() -> Result<()> {
             None => cmd_contribute(&config, n, types.as_deref()),
             Some(ContributeCommands::Star { project }) => cmd_contribute_star(project.as_deref()),
             Some(ContributeCommands::Issue { project }) => cmd_contribute_issue(project.as_deref()),
+            Some(ContributeCommands::Donate { project }) => {
+                cmd_contribute_donate(project.as_deref())
+            }
         },
         Some(Commands::Setup) => cmd_setup(&config),
         Some(Commands::Install { command }) => cmd_install(&command),
@@ -644,6 +654,230 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
+    let storage = Storage::open().context("Failed to open database")?;
+
+    let (project_url, funding) = match project {
+        Some(input) => {
+            // Resolve the project and look up its funding channels in the database
+            let (repo_url, _owner_repo) = resolve_github_project(input)?;
+
+            let projects = storage.all_projects().context("Failed to load projects")?;
+            let found = projects.iter().find(|p| {
+                p.repo_url.as_deref() == Some(&repo_url)
+                    || p.homepage.as_deref() == Some(input)
+                    || p.name.eq_ignore_ascii_case(input)
+            });
+
+            match found {
+                Some(p) => (repo_url, p.funding.clone()),
+                None => {
+                    // Project not in database — try fetching funding info via gh CLI
+                    let funding = fetch_github_funding(input);
+                    (repo_url, funding)
+                }
+            }
+        }
+        None => {
+            // Pick a random project with funding channels from the database
+            let projects = storage.all_projects().context("Failed to load projects")?;
+            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+
+            let suggestions =
+                suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Donate]);
+
+            if suggestions.is_empty() {
+                eprintln!(
+                    "No projects with funding channels found. Run `syld report` to discover projects."
+                );
+                return Ok(());
+            }
+
+            let picked = suggest::pick_random(suggestions, 1);
+            let suggestion = &picked[0];
+
+            // Find the project in the database to get its funding channels
+            let found = projects.iter().find(|p| {
+                p.funding.iter().any(|f| f.url == suggestion.url)
+                    || p.repo_url.as_deref() == Some(&suggestion.url)
+            });
+
+            let funding = match found {
+                Some(p) => p.funding.clone(),
+                None => vec![],
+            };
+
+            let project_url = found
+                .and_then(|p| p.repo_url.clone().or(p.homepage.clone()))
+                .unwrap_or_else(|| suggestion.url.clone());
+
+            (project_url, funding)
+        }
+    };
+
+    if funding.is_empty() {
+        eprintln!("No funding channels found for this project.");
+        eprintln!("The project may not have a FUNDING.yml or known donation platform.");
+        return Ok(());
+    }
+
+    println!("Funding channels:\n");
+    for channel in &funding {
+        println!("  {} — {}", channel.platform, channel.url);
+    }
+
+    // Record the contribution in the database
+    if !storage
+        .has_contribution(&project_url, &ContributionRecordKind::Donation)
+        .unwrap_or(false)
+    {
+        storage.save_contribution(
+            &project_url,
+            &ContributionRecordKind::Donation,
+            None,
+            funding.first().map(|f| f.url.as_str()),
+            chrono::Utc::now(),
+            Some("contribute_donate"),
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Try to fetch funding information from a GitHub repository's FUNDING.yml.
+fn fetch_github_funding(input: &str) -> Vec<syld::project::FundingChannel> {
+    let Ok((_repo_url, owner_repo)) = resolve_github_project(input) else {
+        return vec![];
+    };
+
+    if !is_gh_available() {
+        return vec![];
+    }
+
+    // Try to read .github/FUNDING.yml via gh api
+    let output = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{owner_repo}/contents/.github/FUNDING.yml"),
+            "--jq",
+            ".content",
+        ])
+        .output();
+
+    let Ok(output) = output else {
+        return vec![];
+    };
+
+    if !output.status.success() {
+        return vec![];
+    }
+
+    let encoded = String::from_utf8_lossy(&output.stdout);
+    let encoded = encoded.trim();
+    if encoded.is_empty() {
+        return vec![];
+    }
+
+    // Decode base64 content
+    let decoded_bytes: Vec<u8> = encoded
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .as_bytes()
+        .chunks(4)
+        .filter_map(|chunk| {
+            let s = std::str::from_utf8(chunk).ok()?;
+            base64_decode_chunk(s)
+        })
+        .flatten()
+        .collect();
+
+    let content = String::from_utf8_lossy(&decoded_bytes);
+    parse_funding_yml(&content)
+}
+
+/// Parse a FUNDING.yml file into funding channels.
+fn parse_funding_yml(content: &str) -> Vec<syld::project::FundingChannel> {
+    let mut channels = Vec::new();
+
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        let key = key.trim().to_lowercase();
+        let value = value.trim().trim_matches(|c| c == '\'' || c == '"');
+        if value.is_empty() {
+            continue;
+        }
+
+        let (platform, url) = match key.as_str() {
+            "github" => (
+                "GitHub Sponsors",
+                format!("https://github.com/sponsors/{value}"),
+            ),
+            "open_collective" => (
+                "Open Collective",
+                format!("https://opencollective.com/{value}"),
+            ),
+            "ko_fi" => ("Ko-fi", format!("https://ko-fi.com/{value}")),
+            "liberapay" => ("Liberapay", format!("https://liberapay.com/{value}")),
+            "patreon" => ("Patreon", format!("https://patreon.com/{value}")),
+            "custom" => {
+                // custom can be a URL directly
+                if value.starts_with("http") {
+                    ("Custom", value.to_string())
+                } else {
+                    continue;
+                }
+            }
+            _ => continue,
+        };
+
+        channels.push(syld::project::FundingChannel {
+            platform: platform.to_string(),
+            url,
+        });
+    }
+
+    channels
+}
+
+fn base64_decode_chunk(chunk: &str) -> Option<Vec<u8>> {
+    let bytes: Vec<u8> = chunk
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => 0xFF,
+        })
+        .collect();
+
+    if bytes.len() < 2 {
+        return None;
+    }
+
+    let mut result = Vec::new();
+    if bytes.len() >= 2 && bytes[0] != 0xFF && bytes[1] != 0xFF {
+        result.push((bytes[0] << 2) | (bytes[1] >> 4));
+    }
+    if bytes.len() >= 3 && bytes[2] != 0xFF && chunk.as_bytes().get(2) != Some(&b'=') {
+        result.push((bytes[1] << 4) | (bytes[2] >> 2));
+    }
+    if bytes.len() >= 4 && bytes[3] != 0xFF && chunk.as_bytes().get(3) != Some(&b'=') {
+        result.push((bytes[2] << 6) | bytes[3]);
+    }
+
+    Some(result)
+}
+
 fn cmd_cache(command: &CacheCommands) -> Result<()> {
     match command {
         CacheCommands::Clear => {
@@ -893,5 +1127,86 @@ mod tests {
     #[test]
     fn resolve_non_github_url() {
         assert!(resolve_github_project("https://gitlab.com/owner/repo").is_err());
+    }
+
+    #[test]
+    fn parse_funding_yml_github_sponsors() {
+        let content = "github: curl\n";
+        let channels = parse_funding_yml(content);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].platform, "GitHub Sponsors");
+        assert_eq!(channels[0].url, "https://github.com/sponsors/curl");
+    }
+
+    #[test]
+    fn parse_funding_yml_multiple() {
+        let content = "\
+github: user1
+open_collective: myproject
+ko_fi: creator
+liberapay: dev
+patreon: artist
+";
+        let channels = parse_funding_yml(content);
+        assert_eq!(channels.len(), 5);
+        assert_eq!(channels[0].platform, "GitHub Sponsors");
+        assert_eq!(channels[1].platform, "Open Collective");
+        assert_eq!(channels[1].url, "https://opencollective.com/myproject");
+        assert_eq!(channels[2].platform, "Ko-fi");
+        assert_eq!(channels[2].url, "https://ko-fi.com/creator");
+        assert_eq!(channels[3].platform, "Liberapay");
+        assert_eq!(channels[3].url, "https://liberapay.com/dev");
+        assert_eq!(channels[4].platform, "Patreon");
+        assert_eq!(channels[4].url, "https://patreon.com/artist");
+    }
+
+    #[test]
+    fn parse_funding_yml_custom_url() {
+        let content = "custom: https://example.com/donate\n";
+        let channels = parse_funding_yml(content);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].platform, "Custom");
+        assert_eq!(channels[0].url, "https://example.com/donate");
+    }
+
+    #[test]
+    fn parse_funding_yml_skips_comments_and_blanks() {
+        let content = "\
+# This is a comment
+github: user1
+
+# Another comment
+";
+        let channels = parse_funding_yml(content);
+        assert_eq!(channels.len(), 1);
+    }
+
+    #[test]
+    fn parse_funding_yml_empty() {
+        let channels = parse_funding_yml("");
+        assert!(channels.is_empty());
+    }
+
+    #[test]
+    fn parse_funding_yml_skips_empty_values() {
+        let content = "github:\nopen_collective: myproject\n";
+        let channels = parse_funding_yml(content);
+        assert_eq!(channels.len(), 1);
+        assert_eq!(channels[0].platform, "Open Collective");
+    }
+
+    #[test]
+    fn base64_decode_hello() {
+        // "Hello" in base64 is "SGVsbG8="
+        let decoded: Vec<u8> = "SGVsbG8="
+            .as_bytes()
+            .chunks(4)
+            .filter_map(|chunk| {
+                let s = std::str::from_utf8(chunk).ok()?;
+                base64_decode_chunk(s)
+            })
+            .flatten()
+            .collect();
+        assert_eq!(String::from_utf8(decoded).unwrap(), "Hello");
     }
 }
