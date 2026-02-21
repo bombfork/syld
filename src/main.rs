@@ -143,7 +143,7 @@ enum InstallCommands {
     /// Install systemd user service and timer for periodic scans
     Service {
         /// Timer frequency (daily, weekly, monthly)
-        #[arg(long, default_value = "weekly")]
+        #[arg(long, default_value = "weekly", value_parser = ["daily", "weekly", "monthly"])]
         frequency: String,
 
         /// Enable and start the timer immediately
