@@ -86,6 +86,17 @@ fn install_service_writes_files_with_correct_content() {
 }
 
 #[test]
+fn install_service_rejects_invalid_frequency() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["install", "service", "--frequency", "invalid"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("invalid"));
+}
+
+#[test]
 fn install_hook_unknown_name_fails() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
