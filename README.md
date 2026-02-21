@@ -28,16 +28,7 @@ It scans your system's package managers, figures out which open source projects 
 
 ### Supported package managers
 
-| Package manager | Status |
-|-----------------|--------|
-| pacman (Arch)   | Working |
-| apt (Debian/Ubuntu) | Planned ([#1](https://github.com/bombfork/syld/issues/1)) |
-| dnf (Fedora/RHEL) | Planned ([#2](https://github.com/bombfork/syld/issues/2)) |
-| Flatpak         | Planned ([#3](https://github.com/bombfork/syld/issues/3)) |
-| Snap            | Planned ([#4](https://github.com/bombfork/syld/issues/4)) |
-| Nix             | Planned ([#5](https://github.com/bombfork/syld/issues/5)) |
-| mise            | Planned ([#6](https://github.com/bombfork/syld/issues/6)) |
-| Homebrew/Linuxbrew | Planned ([#7](https://github.com/bombfork/syld/issues/7)) |
+pacman, apt, dnf, Flatpak, Snap, Nix, mise, Homebrew/Linuxbrew, Docker, Podman
 
 ## Installation
 
