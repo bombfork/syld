@@ -7,7 +7,7 @@ Type = Package
 Target = *
 
 [Action]
-Description = Checking open source contribution opportunities...
+Description = Displaying open source contribution opportunities...
 When = PostTransaction
 Exec = /usr/bin/syld hook run pacman-post-transaction
 NeedsTargets

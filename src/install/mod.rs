@@ -79,6 +79,47 @@ pub fn write_with_elevated(path: &Path, content: &str) -> Result<()> {
     }
 }
 
+/// Remove `path` if it exists. If the direct removal fails due to
+/// permissions, fall back to `sudo rm`.
+pub fn remove_with_elevated(path: &Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+
+    match std::fs::remove_file(path) {
+        Ok(()) => {
+            eprintln!("Removed {}", path.display());
+            return Ok(());
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+            eprintln!(
+                "Direct removal of {} failed (permission denied), trying sudo...",
+                path.display()
+            );
+        }
+        Err(e) => return Err(e).with_context(|| format!("Failed to remove {}", path.display())),
+    }
+
+    let status = Command::new("sudo")
+        .args(["rm", &path.to_string_lossy()])
+        .status();
+
+    match status {
+        Ok(s) if s.success() => {
+            eprintln!("Removed {} (via sudo)", path.display());
+            Ok(())
+        }
+        _ => {
+            eprintln!(
+                "\nCould not remove {}. Remove it manually with:\n  sudo rm {}\n",
+                path.display(),
+                path.display()
+            );
+            Ok(())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

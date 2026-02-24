@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
-use super::{resolve_binary_path, write_with_elevated};
+use super::{remove_with_elevated, resolve_binary_path, write_with_elevated};
 
 /// An installable hook descriptor.
 pub struct InstallableHook {
@@ -31,7 +31,7 @@ Type = Package
 Target = *
 
 [Action]
-Description = Checking open source contribution opportunities...
+Description = Displaying open source contribution opportunities...
 When = PostTransaction
 Exec = {} hook run pacman-post-transaction
 NeedsTargets
@@ -41,10 +41,21 @@ NeedsTargets
 }
 
 /// Install the pacman post-transaction hook.
+///
+/// Installs as `99-syld.hook` so it runs after all other ALPM hooks,
+/// ensuring its output appears last and isn't buried among other messages.
+/// Removes the old `syld.hook` if present to avoid running twice.
 pub fn install_pacman_hook() -> Result<()> {
     let binary = resolve_binary_path()?;
     let content = generate_pacman_hook(&binary);
-    let path = PathBuf::from("/usr/share/libalpm/hooks/syld.hook");
+
+    // Remove the old hook path if it exists (renamed to 99-syld.hook)
+    let old_path = PathBuf::from("/usr/share/libalpm/hooks/syld.hook");
+    if old_path.exists() {
+        let _ = remove_with_elevated(&old_path);
+    }
+
+    let path = PathBuf::from("/usr/share/libalpm/hooks/99-syld.hook");
     write_with_elevated(&path, &content)
 }
 
