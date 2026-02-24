@@ -1,0 +1,65 @@
+name: "Release (x86_64)"
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: x86_64-unknown-linux-gnu
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare cache key
+        id: cache-key
+        run: |
+          # Hash Cargo.lock excluding the syld package version line for stable caching
+          HASH=$(grep -n 'name = "syld"' Cargo.lock | head -1 | cut -d: -f1 | xargs -I{} expr {} + 1 | xargs -I{} sed '{}d' Cargo.lock | sha256sum | cut -d' ' -f1)
+          echo "cargo-lock-hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - uses: jdx/mise-action@v2
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            target
+          key: v0-linux-${{ env.TARGET }}-${{ steps.cache-key.outputs.cargo-lock-hash }}
+
+      - name: Build
+        run: cargo build --release --target ${{ env.TARGET }}
+
+      - name: Strip binary
+        run: strip target/${{ env.TARGET }}/release/syld
+
+      - name: Package artifact
+        run: cp target/${{ env.TARGET }}/release/syld syld-${{ env.TARGET }}
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          prev_tag=$(git tag --sort=-v:refname | sed -n '2p')
+          if [ -n "$prev_tag" ]; then
+            log=$(git log "${prev_tag}..HEAD" --pretty=format:"- %s (%h)" --no-merges)
+          else
+            log=$(git log --pretty=format:"- %s (%h)" --no-merges)
+          fi
+          {
+            echo "body<<EOF"
+            echo "$log"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.body }}
+          files: syld-${{ env.TARGET }}

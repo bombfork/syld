@@ -1,6 +1,13 @@
-# syld — Support Your Linux Desktop
+[![CI][ci-badge]][ci] [![Release (x86_64)][rel-x86-badge]][rel-x86] [![Release (aarch64)][rel-aarch64-badge]][rel-aarch64]
 
-[![CI](https://github.com/bombfork/syld/actions/workflows/ci.yml/badge.svg)](https://github.com/bombfork/syld/actions/workflows/ci.yml)
+[ci-badge]: https://github.com/bombfork/syld/actions/workflows/ci.yml/badge.svg
+[ci]: https://github.com/bombfork/syld/actions/workflows/ci.yml
+[rel-x86-badge]: https://github.com/bombfork/syld/actions/workflows/release-x86_64.yml/badge.svg
+[rel-x86]: https://github.com/bombfork/syld/actions/workflows/release-x86_64.yml
+[rel-aarch64-badge]: https://github.com/bombfork/syld/actions/workflows/release-aarch64.yml/badge.svg
+[rel-aarch64]: https://github.com/bombfork/syld/actions/workflows/release-aarch64.yml
+
+# syld — Support Your Linux Desktop
 
 <div align="center">
 
@@ -62,12 +69,11 @@ syld install service --frequency weekly --enable   # systemd user timer
 syld install hook pacman-post-transaction           # pacman ALPM hook (requires sudo)
 ```
 
-Or copy the reference template files directly:
+Or copy the systemd template files directly:
 
 ```sh
 cp systemd/syld.service systemd/syld.timer ~/.config/systemd/user/
 systemctl --user enable --now syld.timer
-sudo cp hooks/pacman/syld.hook /usr/share/libalpm/hooks/
 ```
 
 Note: the template files hardcode default binary paths. The `syld install` commands generate files with the correct path to your syld binary.
