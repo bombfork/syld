@@ -4,18 +4,15 @@
 //!
 //! Surfaces contribution opportunities after pacman installs or upgrades
 //! packages. Uses the contribution suggestion engine to generate actionable
-//! suggestions scoped to the packages in the transaction. Reads existing
-//! scan and project data from the local SQLite cache — no network calls,
-//! so it's fast enough for inline pacman output.
+//! suggestions from all enriched project data. No network calls, so it's
+//! fast enough for inline pacman output.
 
-use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::Result;
 
 use super::{Hook, HookContext};
 use crate::contribute::suggest::{self, SuggestionKind};
-use crate::report::terminal::normalize_url;
 use crate::storage::Storage;
 
 const PACMAN_DB_PATH: &str = "/var/lib/pacman/local";
@@ -54,52 +51,17 @@ impl Hook for PacmanPostTransactionHook {
             Err(_) => return Ok(()), // No database yet — nothing to report
         };
 
-        let scan = match storage.latest_scan()? {
-            Some(s) => s,
-            None => return Ok(()), // No scan data
-        };
-
-        // Match targets against scanned packages to find their URLs
-        let mut matched_urls: HashSet<String> = HashSet::new();
-        for target in &ctx.targets {
-            for pkg in &scan.packages {
-                if pkg.name == *target {
-                    if let Some(url) = &pkg.url {
-                        matched_urls.insert(url.clone());
-                        matched_urls.insert(normalize_url(url));
-                    }
-                    break;
-                }
-            }
-        }
-
-        if matched_urls.is_empty() {
-            return Ok(());
-        }
-
-        // Load projects and filter to those matching the transaction packages
-        let all_projects = storage.all_projects().unwrap_or_default();
-        let scoped_projects: Vec<_> = all_projects
-            .into_iter()
-            .filter(|p| {
-                let urls: Vec<&str> = [p.repo_url.as_deref(), p.homepage.as_deref()]
-                    .into_iter()
-                    .flatten()
-                    .collect();
-                urls.iter()
-                    .any(|u| matched_urls.contains(*u) || matched_urls.contains(&normalize_url(u)))
-            })
-            .collect();
-
-        if scoped_projects.is_empty() {
+        // Load all enriched projects from the database.
+        let projects = storage.all_projects().unwrap_or_default();
+        if projects.is_empty() {
             return Ok(());
         }
 
         // Generate suggestions using the contribute engine, excluding
-        // contributions the user has already completed
+        // contributions the user has already completed.
         let contributions = storage.get_contributions(None, None).unwrap_or_default();
         let suggestions =
-            suggest::generate_suggestions(&scoped_projects, &contributions, SuggestionKind::ALL);
+            suggest::generate_suggestions(&projects, &contributions, SuggestionKind::ALL);
 
         if suggestions.is_empty() {
             return Ok(());
@@ -132,6 +94,18 @@ mod tests {
             targets: vec![],
         };
         // Should return Ok silently
+        assert!(hook.run(&ctx).is_ok());
+    }
+
+    #[test]
+    fn run_with_targets_no_db_succeeds() {
+        // When there's no database, the hook should return Ok silently
+        let hook = PacmanPostTransactionHook;
+        let config = crate::config::Config::default();
+        let ctx = HookContext {
+            config: &config,
+            targets: vec!["curl".to_string()],
+        };
         assert!(hook.run(&ctx).is_ok());
     }
 }
