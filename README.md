@@ -62,12 +62,11 @@ syld install service --frequency weekly --enable   # systemd user timer
 syld install hook pacman-post-transaction           # pacman ALPM hook (requires sudo)
 ```
 
-Or copy the reference template files directly:
+Or copy the systemd template files directly:
 
 ```sh
 cp systemd/syld.service systemd/syld.timer ~/.config/systemd/user/
 systemctl --user enable --now syld.timer
-sudo cp hooks/pacman/syld.hook /usr/share/libalpm/hooks/
 ```
 
 Note: the template files hardcode default binary paths. The `syld install` commands generate files with the correct path to your syld binary.
