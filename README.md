@@ -1,6 +1,13 @@
-# syld — Support Your Linux Desktop
+[![CI][ci-badge]][ci] [![Release (x86_64)][rel-x86-badge]][rel-x86] [![Release (aarch64)][rel-aarch64-badge]][rel-aarch64]
 
-[![CI](https://github.com/bombfork/syld/actions/workflows/ci.yml/badge.svg)](https://github.com/bombfork/syld/actions/workflows/ci.yml)
+[ci-badge]: https://github.com/bombfork/syld/actions/workflows/ci.yml/badge.svg
+[ci]: https://github.com/bombfork/syld/actions/workflows/ci.yml
+[rel-x86-badge]: https://github.com/bombfork/syld/actions/workflows/release-x86_64.yml/badge.svg
+[rel-x86]: https://github.com/bombfork/syld/actions/workflows/release-x86_64.yml
+[rel-aarch64-badge]: https://github.com/bombfork/syld/actions/workflows/release-aarch64.yml/badge.svg
+[rel-aarch64]: https://github.com/bombfork/syld/actions/workflows/release-aarch64.yml
+
+# syld — Support Your Linux Desktop
 
 <div align="center">
 

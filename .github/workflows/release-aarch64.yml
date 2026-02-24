@@ -1,0 +1,55 @@
+name: "Release (aarch64)"
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  TARGET: aarch64-unknown-linux-gnu
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare cache key
+        id: cache-key
+        run: |
+          # Hash Cargo.lock excluding the syld package version line for stable caching
+          HASH=$(grep -n 'name = "syld"' Cargo.lock | head -1 | cut -d: -f1 | xargs -I{} expr {} + 1 | xargs -I{} sed '{}d' Cargo.lock | sha256sum | cut -d' ' -f1)
+          echo "cargo-lock-hash=$HASH" >> "$GITHUB_OUTPUT"
+
+      - uses: jdx/mise-action@v2
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo
+            target
+          key: v0-linux-${{ env.TARGET }}-${{ steps.cache-key.outputs.cargo-lock-hash }}
+
+      - name: Add target
+        run: rustup target add ${{ env.TARGET }}
+
+      - name: Install cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build
+        run: cross build --release --target ${{ env.TARGET }}
+
+      - name: Strip binary
+        run: |
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          aarch64-linux-gnu-strip target/${{ env.TARGET }}/release/syld
+
+      - name: Package artifact
+        run: cp target/${{ env.TARGET }}/release/syld syld-${{ env.TARGET }}
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: syld-${{ env.TARGET }}
