@@ -30,8 +30,8 @@ It scans your system's package managers, figures out which open source projects 
 - **Package discovery** — reads your local package databases directly (no root needed)
 - **Privacy-first** — everything stays on your machine by default, no network calls unless you opt in
 - **Grouped output** — packages are grouped by upstream project so you can see who's behind what
-- **Pagination** — browse results at your own pace with `--limit`
 - **Systemd integration** — set-and-forget periodic scans with a user-level timer (`syld install service`)
+- **Hooks** — integration with package manager to be reminded on system updates about useful way to contribute (`syld install hooks`)
 
 ### Supported package managers
 
@@ -68,15 +68,6 @@ If you prefer non-interactive or scripted installs, use the individual install c
 syld install service --frequency weekly --enable   # systemd user timer
 syld install hook pacman-post-transaction           # pacman ALPM hook (requires sudo)
 ```
-
-Or copy the systemd template files directly:
-
-```sh
-cp systemd/syld.service systemd/syld.timer ~/.config/systemd/user/
-systemctl --user enable --now syld.timer
-```
-
-Note: the template files hardcode default binary paths. The `syld install` commands generate files with the correct path to your syld binary.
 
 ## Usage
 
