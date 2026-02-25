@@ -4,7 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+
+use crate::config::Config;
 
 use super::{remove_with_elevated, resolve_binary_path, write_with_elevated};
 
@@ -21,7 +23,10 @@ pub struct InstallableHook {
 }
 
 /// Generate the contents of a pacman ALPM hook file.
-pub fn generate_pacman_hook(binary_path: &Path) -> String {
+///
+/// `db_path` is baked into the `Exec` line so the hook works correctly
+/// even when pacman runs as root (where `$HOME` would resolve to `/root`).
+pub fn generate_pacman_hook(binary_path: &Path, db_path: &Path) -> String {
     format!(
         "\
 [Trigger]
@@ -33,10 +38,11 @@ Target = *
 [Action]
 Description = Displaying open source contribution opportunities...
 When = PostTransaction
-Exec = {} hook run pacman-post-transaction
+Exec = {} hook run pacman-post-transaction --db-path {}
 NeedsTargets
 ",
-        binary_path.display()
+        binary_path.display(),
+        db_path.display()
     )
 }
 
@@ -47,7 +53,9 @@ NeedsTargets
 /// Removes the old `syld.hook` if present to avoid running twice.
 pub fn install_pacman_hook() -> Result<()> {
     let binary = resolve_binary_path()?;
-    let content = generate_pacman_hook(&binary);
+    let data_dir = Config::data_dir().context("Failed to resolve data directory for hook")?;
+    let db_path = data_dir.join("syld.db");
+    let content = generate_pacman_hook(&binary, &db_path);
 
     // Remove the old hook path if it exists (renamed to 99-syld.hook)
     let old_path = PathBuf::from("/usr/share/libalpm/hooks/syld.hook");
@@ -75,12 +83,13 @@ mod tests {
     use std::path::PathBuf;
 
     #[test]
-    fn generate_pacman_hook_interpolates_binary_path() {
-        let path = PathBuf::from("/home/user/.cargo/bin/syld");
-        let content = generate_pacman_hook(&path);
-        assert!(
-            content.contains("Exec = /home/user/.cargo/bin/syld hook run pacman-post-transaction")
-        );
+    fn generate_pacman_hook_interpolates_binary_and_db_path() {
+        let binary = PathBuf::from("/home/user/.cargo/bin/syld");
+        let db = PathBuf::from("/home/user/.local/share/syld/syld.db");
+        let content = generate_pacman_hook(&binary, &db);
+        assert!(content.contains(
+            "Exec = /home/user/.cargo/bin/syld hook run pacman-post-transaction --db-path /home/user/.local/share/syld/syld.db"
+        ));
         assert!(content.contains("NeedsTargets"));
     }
 

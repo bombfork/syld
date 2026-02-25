@@ -54,6 +54,8 @@
 
 pub mod pacman_post_transaction;
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 
 use crate::config::Config;
@@ -65,6 +67,14 @@ pub struct HookContext<'a> {
 
     /// Package names provided via stdin (one per line).
     pub targets: Vec<String>,
+
+    /// Optional override for the database path.
+    ///
+    /// When set, hooks should use this path instead of the default
+    /// `Storage::open()` resolution. This is needed when hooks run as root
+    /// (e.g. pacman ALPM hooks), where `$HOME` resolves to `/root` instead
+    /// of the installing user's home directory.
+    pub db_path: Option<PathBuf>,
 }
 
 /// Trait for package manager hook backends.

@@ -2,6 +2,7 @@
 
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 
 use anyhow::{Context, Result};
@@ -132,6 +133,10 @@ enum HookCommands {
     Run {
         /// Hook name (e.g. pacman-post-transaction)
         name: String,
+
+        /// Path to the syld database (overrides default resolution)
+        #[arg(long)]
+        db_path: Option<PathBuf>,
     },
 
     /// List all hooks with their availability status
@@ -984,12 +989,12 @@ fn cmd_cache(command: &CacheCommands) -> Result<()> {
 
 fn cmd_hook(config: &Config, command: &HookCommands) -> Result<()> {
     match command {
-        HookCommands::Run { name } => cmd_hook_run(config, name),
+        HookCommands::Run { name, db_path } => cmd_hook_run(config, name, db_path.as_deref()),
         HookCommands::List => cmd_hook_list(),
     }
 }
 
-fn cmd_hook_run(config: &Config, name: &str) -> Result<()> {
+fn cmd_hook_run(config: &Config, name: &str, db_path: Option<&std::path::Path>) -> Result<()> {
     let hook = match hook::find_hook(name) {
         Some(h) => h,
         None => {
@@ -1014,7 +1019,11 @@ fn cmd_hook_run(config: &Config, name: &str) -> Result<()> {
         })
         .collect();
 
-    let ctx = HookContext { config, targets };
+    let ctx = HookContext {
+        config,
+        targets,
+        db_path: db_path.map(|p| p.to_path_buf()),
+    };
 
     hook.run(&ctx)
 }

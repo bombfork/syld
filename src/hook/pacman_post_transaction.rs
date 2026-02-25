@@ -46,9 +46,15 @@ impl Hook for PacmanPostTransactionHook {
             return Ok(());
         }
 
-        let storage = match Storage::open() {
-            Ok(s) => s,
-            Err(_) => return Ok(()), // No database yet — nothing to report
+        let storage = match ctx.db_path {
+            Some(ref path) => match Storage::open_path(path) {
+                Ok(s) => s,
+                Err(_) => return Ok(()),
+            },
+            None => match Storage::open() {
+                Ok(s) => s,
+                Err(_) => return Ok(()), // No database yet — nothing to report
+            },
         };
 
         // Load all enriched projects from the database.
@@ -92,6 +98,7 @@ mod tests {
         let ctx = HookContext {
             config: &config,
             targets: vec![],
+            db_path: None,
         };
         // Should return Ok silently
         assert!(hook.run(&ctx).is_ok());
@@ -105,6 +112,7 @@ mod tests {
         let ctx = HookContext {
             config: &config,
             targets: vec!["curl".to_string()],
+            db_path: None,
         };
         assert!(hook.run(&ctx).is_ok());
     }
