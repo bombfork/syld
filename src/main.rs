@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 
 use syld::config::Config;
 use syld::contribute::ContributionRecordKind;
-use syld::contribute::github_good_first_issues::extract_github_owner_repo;
+use syld::contribute::github_good_first_issues::{GhIssue, extract_github_owner_repo};
 use syld::contribute::github_sync::is_gh_available;
 use syld::contribute::suggest::{self, SuggestionKind};
 use syld::discover::{self, InstalledPackage};
@@ -603,12 +603,6 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
         if output.status.success() {
             let stdout = String::from_utf8(output.stdout)
                 .context("gh issue list output is not valid UTF-8")?;
-
-            #[derive(serde::Deserialize)]
-            struct GhIssue {
-                title: String,
-                url: String,
-            }
 
             let issues: Vec<GhIssue> =
                 serde_json::from_str(&stdout).context("Failed to parse gh issue list JSON")?;

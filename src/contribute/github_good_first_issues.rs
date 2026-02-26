@@ -19,16 +19,16 @@ pub struct GitHubGoodFirstIssuesBackend;
 
 /// A single issue from the `gh` CLI JSON output.
 #[derive(Debug, Deserialize)]
-struct GhIssue {
-    title: String,
-    url: String,
+pub struct GhIssue {
+    pub title: String,
+    pub url: String,
     #[serde(default)]
-    labels: Vec<GhLabel>,
+    pub labels: Vec<GhLabel>,
 }
 
 #[derive(Debug, Deserialize)]
-struct GhLabel {
-    name: String,
+pub struct GhLabel {
+    pub name: String,
 }
 
 impl ContributionBackend for GitHubGoodFirstIssuesBackend {
