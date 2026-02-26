@@ -82,6 +82,34 @@ fn hook_run_apt_empty_stdin_succeeds() {
 }
 
 #[test]
+fn hook_list_succeeds_and_shows_dnf() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["hook", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("dnf-post-transaction"));
+}
+
+#[test]
+fn hook_run_dnf_empty_stdin_succeeds() {
+    // Skip on non-Fedora/RHEL systems where DNF is not available
+    if !Path::new("/var/lib/dnf").is_dir() {
+        eprintln!("Skipping: DNF not available on this system");
+        return;
+    }
+
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["hook", "run", "dnf-post-transaction"])
+        .write_stdin("")
+        .assert()
+        .success();
+}
+
+#[test]
 fn hook_list_shows_availability_status() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
