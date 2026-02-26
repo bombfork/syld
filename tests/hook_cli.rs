@@ -54,6 +54,34 @@ fn hook_run_pacman_empty_stdin_succeeds() {
 }
 
 #[test]
+fn hook_list_succeeds_and_shows_apt() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["hook", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("apt-post-invoke"));
+}
+
+#[test]
+fn hook_run_apt_empty_stdin_succeeds() {
+    // Skip on non-Debian systems where dpkg is not available
+    if !Path::new("/var/lib/dpkg/status").is_file() {
+        eprintln!("Skipping: dpkg not available on this system");
+        return;
+    }
+
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["hook", "run", "apt-post-invoke"])
+        .write_stdin("")
+        .assert()
+        .success();
+}
+
+#[test]
 fn hook_list_shows_availability_status() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
