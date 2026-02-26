@@ -58,7 +58,7 @@ enum Commands {
         format: ReportFormat,
 
         /// Maximum number of projects to display (0 for all)
-        #[arg(long, default_value = "0")]
+        #[arg(short = 'n', long, alias = "count", default_value = "0")]
         limit: usize,
     },
 
