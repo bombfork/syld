@@ -89,8 +89,8 @@ enum Commands {
     #[command(args_conflicts_with_subcommands = true)]
     Contribute {
         /// Number of suggestions to show
-        #[arg(short, default_value = "3")]
-        n: usize,
+        #[arg(short = 'n', long = "limit", alias = "count", default_value = "3")]
+        limit: usize,
 
         /// Comma-separated contribution types to include (star, issue, donate, docs, spread)
         #[arg(long = "type", value_name = "TYPES")]
@@ -226,8 +226,12 @@ fn main() -> Result<()> {
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
-        Some(Commands::Contribute { n, types, command }) => match command {
-            None => cmd_contribute(&config, n, types.as_deref()),
+        Some(Commands::Contribute {
+            limit,
+            types,
+            command,
+        }) => match command {
+            None => cmd_contribute(&config, limit, types.as_deref()),
             Some(ContributeCommands::Star { project }) => cmd_contribute_star(project.as_deref()),
             Some(ContributeCommands::Issue { project }) => cmd_contribute_issue(project.as_deref()),
             Some(ContributeCommands::Donate { project }) => {
@@ -388,7 +392,7 @@ fn load_stored_enrichment(storage: &Storage, packages: &[InstalledPackage]) -> E
     map
 }
 
-fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> {
+fn cmd_contribute(config: &Config, limit: usize, types: Option<&str>) -> Result<()> {
     let filter: Vec<SuggestionKind> = match types {
         Some(input) => suggest::parse_types(input).map_err(|e| anyhow::anyhow!(e))?,
         None => SuggestionKind::ALL.to_vec(),
@@ -424,7 +428,7 @@ fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> 
         return Ok(());
     }
 
-    let selected = suggest::pick_random(suggestions, n);
+    let selected = suggest::pick_random(suggestions, limit);
     print!("{}", suggest::format_suggestions(&selected));
 
     let _ = config;
