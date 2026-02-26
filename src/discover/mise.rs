@@ -118,7 +118,9 @@ fn parse_mise_output(output: &str) -> Result<Vec<InstalledPackage>> {
     let mut packages = Vec::new();
 
     for (tool_name, versions) in &tools {
-        for entry in versions {
+        // mise can have multiple versions of the same tool installed; keep only
+        // the latest (last) version so each tool appears once in the inventory.
+        if let Some(entry) = versions.last() {
             let description = build_description(tool_name, &entry.source);
 
             packages.push(InstalledPackage {
@@ -129,8 +131,8 @@ fn parse_mise_output(output: &str) -> Result<Vec<InstalledPackage>> {
                 source: PackageSource::Mise,
                 licenses: Vec::new(),
             });
-            pb.inc(1);
         }
+        pb.inc(versions.len() as u64);
     }
 
     pb.finish_and_clear();
@@ -233,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_multiple_versions_same_tool() {
+    fn parse_multiple_versions_same_tool_keeps_latest() {
         let output = r#"{
             "node": [
                 {
@@ -250,9 +252,9 @@ mod tests {
         }"#;
 
         let packages = parse_mise_output(output).unwrap();
-        assert_eq!(packages.len(), 2);
-        assert_eq!(packages[0].version, "18.0.0");
-        assert_eq!(packages[1].version, "20.0.0");
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "node");
+        assert_eq!(packages[0].version, "20.0.0");
     }
 
     #[test]
