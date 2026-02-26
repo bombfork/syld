@@ -89,11 +89,11 @@ pub fn run_setup(config: &Config) -> Result<()> {
 
     // ── Stage 4: Initial report ────────────────────────────────────────
 
-    eprintln!("── Initial report ──\n");
+    eprintln!("── Initial scan ──\n");
 
     let run_report = Confirm::new()
         .with_prompt(
-            "Generate an initial report now? (scans your system and fetches project metadata \
+            "Run an initial scan now? (discovers packages and fetches project metadata \
              — may take a few minutes on first run)",
         )
         .default(true)
@@ -103,12 +103,12 @@ pub fn run_setup(config: &Config) -> Result<()> {
     if run_report {
         let binary = install::resolve_binary_path()?;
         let status = std::process::Command::new(&binary)
-            .args(["report", "--progress-only"])
+            .args(["scan"])
             .status()
             .with_context(|| format!("Failed to run {}", binary.display()))?;
 
         if !status.success() {
-            eprintln!("Warning: report exited with {status}");
+            eprintln!("Warning: scan exited with {status}");
         }
     }
 

@@ -40,23 +40,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Discover installed open source packages
+    /// Discover installed packages and enrich project metadata
     Scan {
-        /// Maximum number of projects to display (0 for all)
-        #[arg(long, default_value = "20")]
-        limit: usize,
-
-        /// Scan only — save results to the database without printing the summary table
-        #[arg(long)]
-        silent: bool,
-    },
-
-    /// Generate a report from the last scan
-    Report {
-        /// Output format
-        #[arg(long, default_value = "terminal")]
-        format: ReportFormat,
-
         /// Force re-enrichment, bypassing the cache
         #[arg(long)]
         force_refresh: bool,
@@ -64,10 +49,17 @@ enum Commands {
         /// Number of parallel enrichment threads
         #[arg(short = 'j', long)]
         jobs: Option<usize>,
+    },
 
-        /// Run scan and enrichment, showing progress, but skip the final report output
-        #[arg(long)]
-        progress_only: bool,
+    /// Display a report from stored scan data
+    Report {
+        /// Output format
+        #[arg(long, default_value = "terminal")]
+        format: ReportFormat,
+
+        /// Maximum number of projects to display (0 for all)
+        #[arg(long, default_value = "0")]
+        limit: usize,
     },
 
     /// Manage the local cache
@@ -217,14 +209,12 @@ fn main() -> Result<()> {
     let config = Config::load()?;
 
     match cli.command {
-        None => cmd_scan(&config, 20, false),
-        Some(Commands::Scan { limit, silent }) => cmd_scan(&config, limit, silent),
-        Some(Commands::Report {
-            format,
+        None => cmd_scan(&config, false, None),
+        Some(Commands::Scan {
             force_refresh,
             jobs,
-            progress_only,
-        }) => cmd_report(&config, &format, force_refresh, jobs, progress_only),
+        }) => cmd_scan(&config, force_refresh, jobs),
+        Some(Commands::Report { format, limit }) => cmd_report(&config, &format, limit),
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
@@ -242,26 +232,20 @@ fn main() -> Result<()> {
     }
 }
 
-fn run_scan(config: &Config, silent: bool) -> Result<Vec<InstalledPackage>> {
+fn run_scan(config: &Config) -> Result<Vec<InstalledPackage>> {
     let discoverers = discover::active_discoverers(config);
 
     if discoverers.is_empty() {
-        if !silent {
-            eprintln!("No supported package managers detected on this system.");
-        }
+        eprintln!("No supported package managers detected on this system.");
         return Ok(Vec::new());
     }
 
     let mut all_packages = Vec::new();
     for d in &discoverers {
-        if !silent {
-            eprintln!("Scanning {} packages...", d.name());
-        }
+        eprintln!("Scanning {} packages...", d.name());
         match d.discover() {
             Ok(packages) => {
-                if !silent {
-                    eprintln!("  Found {} packages", packages.len());
-                }
+                eprintln!("  Found {} packages", packages.len());
                 all_packages.extend(packages);
             }
             Err(e) => {
@@ -270,16 +254,12 @@ fn run_scan(config: &Config, silent: bool) -> Result<Vec<InstalledPackage>> {
         }
     }
 
-    if !silent {
-        eprintln!("\nTotal: {} packages discovered", all_packages.len());
-    }
+    eprintln!("\nTotal: {} packages discovered", all_packages.len());
 
     match Storage::open() {
         Ok(storage) => match storage.save_scan(&all_packages) {
             Ok(_) => {
-                if !silent {
-                    eprintln!("Scan saved ({} packages)", all_packages.len());
-                }
+                eprintln!("Scan saved ({} packages)", all_packages.len());
             }
             Err(e) => eprintln!("Warning: failed to save scan: {e}"),
         },
@@ -289,32 +269,25 @@ fn run_scan(config: &Config, silent: bool) -> Result<Vec<InstalledPackage>> {
     Ok(all_packages)
 }
 
-fn cmd_scan(config: &Config, limit: usize, silent: bool) -> Result<()> {
-    let all_packages = run_scan(config, silent)?;
+fn cmd_scan(config: &Config, force_refresh: bool, jobs: Option<usize>) -> Result<()> {
+    let packages = run_scan(config)?;
 
-    if !silent {
-        let mut sorted = all_packages;
-        terminal::sort_packages(&mut sorted);
-        terminal::print_summary(
-            &sorted,
-            limit,
-            chrono::Utc::now(),
-            &ContributionMap::new(),
-            &EnrichmentMap::new(),
-            None,
-        );
+    if packages.is_empty() {
+        return Ok(());
+    }
+
+    // Run enrichment
+    let storage = Storage::open().context("Failed to open database")?;
+    let should_enrich = config.enrich || force_refresh;
+    if should_enrich {
+        syld::enrich::enrich_packages(&packages, &storage, config, force_refresh, jobs)?;
+        eprintln!("Enrichment complete.");
     }
 
     Ok(())
 }
 
-fn cmd_report(
-    config: &Config,
-    format: &ReportFormat,
-    force_refresh: bool,
-    jobs: Option<usize>,
-    progress_only: bool,
-) -> Result<()> {
+fn cmd_report(config: &Config, format: &ReportFormat, limit: usize) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     let scan = storage
         .latest_scan()
@@ -323,8 +296,9 @@ fn cmd_report(
     let scan = match scan {
         Some(s) => s,
         None => {
-            eprintln!("No previous scan found. Running scan first\u{2026}");
-            run_scan(config, true)?;
+            eprintln!("No scan data found. Running scan first\u{2026}");
+            // Run a full scan (with enrichment if configured)
+            cmd_scan(config, false, None)?;
             let fresh = storage
                 .latest_scan()
                 .context("Failed to read scan after auto-scan")?;
@@ -338,16 +312,8 @@ fn cmd_report(
         }
     };
 
-    // Run enrichment if enabled in config; --force-refresh bypasses cache
-    let enrichment = if config.enrich || force_refresh {
-        syld::enrich::enrich_packages(&scan.packages, &storage, config, force_refresh, jobs)?
-    } else {
-        syld::enrich::EnrichmentMap::new()
-    };
-
-    if progress_only {
-        return Ok(());
-    }
+    // Load enrichment data from the database (no network calls)
+    let enrichment = load_stored_enrichment(&storage, &scan.packages);
 
     let contributions = ContributionMap::new();
 
@@ -364,7 +330,7 @@ fn cmd_report(
             terminal::sort_packages(&mut packages);
             terminal::print_summary(
                 &packages,
-                0,
+                limit,
                 scan.timestamp,
                 &contributions,
                 &enrichment,
@@ -394,6 +360,25 @@ fn cmd_report(
     Ok(())
 }
 
+/// Load enrichment data from the database cache without making network calls.
+fn load_stored_enrichment(storage: &Storage, packages: &[InstalledPackage]) -> EnrichmentMap {
+    let mut map = EnrichmentMap::new();
+    for pkg in packages {
+        let url = match &pkg.url {
+            Some(u) if !u.is_empty() => u,
+            _ => continue,
+        };
+        let normalized = terminal::normalize_url(url);
+        if map.contains_key(&normalized) {
+            continue;
+        }
+        if let Ok(Some(project)) = storage.get_enrichment(&normalized) {
+            map.insert(normalized, project);
+        }
+    }
+    map
+}
+
 fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> {
     let filter: Vec<SuggestionKind> = match types {
         Some(input) => suggest::parse_types(input).map_err(|e| anyhow::anyhow!(e))?,
@@ -414,7 +399,7 @@ fn cmd_contribute(config: &Config, n: usize, types: Option<&str>) -> Result<()> 
     let projects = storage.all_projects().context("Failed to load projects")?;
     if projects.is_empty() {
         eprintln!(
-            "No enriched project data found. Run `syld report` with enrichment enabled to populate project data."
+            "No enriched project data found. Run `syld scan` with enrichment enabled to populate project data."
         );
         return Ok(());
     }
@@ -485,7 +470,7 @@ fn cmd_contribute_star(project: Option<&str>) -> Result<()> {
 
             if suggestions.is_empty() {
                 eprintln!(
-                    "No unstarred GitHub projects found. Run `syld report` to discover projects."
+                    "No unstarred GitHub projects found. Run `syld scan` to discover projects."
                 );
                 return Ok(());
             }
@@ -566,7 +551,7 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
 
             if suggestions.is_empty() {
                 eprintln!(
-                    "No projects with good first issues found. Run `syld report` to discover projects."
+                    "No projects with good first issues found. Run `syld scan` to discover projects."
                 );
                 return Ok(());
             }
@@ -696,7 +681,7 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
 
             if suggestions.is_empty() {
                 eprintln!(
-                    "No projects with funding channels found. Run `syld report` to discover projects."
+                    "No projects with funding channels found. Run `syld scan` to discover projects."
                 );
                 return Ok(());
             }
@@ -797,7 +782,7 @@ fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
 
             if suggestions.is_empty() {
                 eprintln!(
-                    "No projects with contributing guides found. Run `syld report` to discover projects."
+                    "No projects with contributing guides found. Run `syld scan` to discover projects."
                 );
                 return Ok(());
             }

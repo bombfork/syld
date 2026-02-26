@@ -108,25 +108,14 @@ fn install_hook_unknown_name_fails() {
 }
 
 #[test]
-fn scan_silent_produces_no_stdout() {
+fn scan_produces_no_stdout() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
     syld_with_db(tmp.path(), data.path())
-        .args(["scan", "--silent"])
+        .args(["scan"])
         .assert()
         .success()
         .stdout(predicate::str::is_empty());
-}
-
-#[test]
-fn scan_help_shows_silent_flag() {
-    let tmp = tempfile::tempdir().unwrap();
-    let data = tempfile::tempdir().unwrap();
-    syld_with_db(tmp.path(), data.path())
-        .args(["scan", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("--silent"));
 }
 
 #[test]
