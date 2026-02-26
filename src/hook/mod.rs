@@ -53,6 +53,7 @@
 //! [`is_available()`](Hook::is_available) check passes.
 
 pub mod apt_post_invoke;
+pub mod dnf_post_transaction;
 pub mod pacman_post_transaction;
 
 use std::path::PathBuf;
@@ -118,6 +119,7 @@ pub trait Hook {
 pub fn all_hooks() -> Vec<Box<dyn Hook>> {
     vec![
         Box::new(apt_post_invoke::AptPostInvokeHook),
+        Box::new(dnf_post_transaction::DnfPostTransactionHook),
         Box::new(pacman_post_transaction::PacmanPostTransactionHook),
     ]
 }
@@ -199,6 +201,12 @@ mod tests {
     fn all_hooks_contains_apt() {
         let hooks = all_hooks();
         assert!(hooks.iter().any(|h| h.name() == "apt-post-invoke"));
+    }
+
+    #[test]
+    fn all_hooks_contains_dnf() {
+        let hooks = all_hooks();
+        assert!(hooks.iter().any(|h| h.name() == "dnf-post-transaction"));
     }
 
     #[test]

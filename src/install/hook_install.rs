@@ -95,6 +95,35 @@ pub fn install_apt_hook() -> Result<()> {
     write_with_elevated(&path, &content)
 }
 
+/// Generate the contents of a DNF post-transaction-actions action file.
+///
+/// `db_path` is baked into the command so the hook works correctly
+/// even when DNF runs as root (where `$HOME` would resolve to `/root`).
+/// The `|| true` suffix ensures hook errors never break DNF operations.
+pub fn generate_dnf_hook(binary_path: &Path, db_path: &Path) -> String {
+    format!(
+        "*:any:{} hook run dnf-post-transaction --db-path {} || true",
+        binary_path.display(),
+        db_path.display()
+    )
+}
+
+/// Install the DNF post-transaction hook.
+///
+/// Installs as `syld.action` in `/etc/dnf/plugins/post-transaction-actions.d/`
+/// so it runs after DNF finishes installing or upgrading packages. This uses
+/// the `post-transaction-actions` DNF plugin. The `|| true` in the command
+/// ensures hook errors never break DNF operations.
+pub fn install_dnf_hook() -> Result<()> {
+    let binary = resolve_binary_path()?;
+    let data_dir = Config::data_dir().context("Failed to resolve data directory for hook")?;
+    let db_path = data_dir.join("syld.db");
+    let content = generate_dnf_hook(&binary, &db_path);
+
+    let path = PathBuf::from("/etc/dnf/plugins/post-transaction-actions.d/syld.action");
+    write_with_elevated(&path, &content)
+}
+
 /// Return the registry of hooks that can be installed.
 pub fn installable_hooks() -> Vec<InstallableHook> {
     vec![
@@ -103,6 +132,12 @@ pub fn installable_hooks() -> Vec<InstallableHook> {
             description: "Run syld after APT installs/upgrades",
             available: Path::new("/var/lib/dpkg/status").is_file(),
             install_fn: install_apt_hook,
+        },
+        InstallableHook {
+            name: "dnf-post-transaction",
+            description: "Run syld after DNF installs/upgrades",
+            available: Path::new("/var/lib/dnf").is_dir(),
+            install_fn: install_dnf_hook,
         },
         InstallableHook {
             name: "pacman-post-transaction",
@@ -141,10 +176,22 @@ mod tests {
     }
 
     #[test]
-    fn installable_hooks_contains_pacman_and_apt() {
+    fn generate_dnf_hook_interpolates_binary_and_db_path() {
+        let binary = PathBuf::from("/home/user/.cargo/bin/syld");
+        let db = PathBuf::from("/home/user/.local/share/syld/syld.db");
+        let content = generate_dnf_hook(&binary, &db);
+        assert!(content.contains(
+            "/home/user/.cargo/bin/syld hook run dnf-post-transaction --db-path /home/user/.local/share/syld/syld.db"
+        ));
+        assert!(content.contains("|| true"));
+    }
+
+    #[test]
+    fn installable_hooks_contains_all() {
         let hooks = installable_hooks();
-        assert_eq!(hooks.len(), 2);
+        assert_eq!(hooks.len(), 3);
         assert!(hooks.iter().any(|h| h.name == "apt-post-invoke"));
+        assert!(hooks.iter().any(|h| h.name == "dnf-post-transaction"));
         assert!(hooks.iter().any(|h| h.name == "pacman-post-transaction"));
     }
 }
