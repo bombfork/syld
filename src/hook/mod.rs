@@ -52,6 +52,7 @@
 //! vector. The new hook will be included automatically whenever its
 //! [`is_available()`](Hook::is_available) check passes.
 
+pub mod apt_post_invoke;
 pub mod pacman_post_transaction;
 
 use std::path::PathBuf;
@@ -115,7 +116,10 @@ pub trait Hook {
 /// Used by `syld hook list` to show all hooks with their status, and by
 /// `find_hook()` to look up a hook by name.
 pub fn all_hooks() -> Vec<Box<dyn Hook>> {
-    vec![Box::new(pacman_post_transaction::PacmanPostTransactionHook)]
+    vec![
+        Box::new(apt_post_invoke::AptPostInvokeHook),
+        Box::new(pacman_post_transaction::PacmanPostTransactionHook),
+    ]
 }
 
 /// Returns all hooks that are available in the current environment.
@@ -189,6 +193,12 @@ mod tests {
     fn all_hooks_contains_pacman() {
         let hooks = all_hooks();
         assert!(hooks.iter().any(|h| h.name() == "pacman-post-transaction"));
+    }
+
+    #[test]
+    fn all_hooks_contains_apt() {
+        let hooks = all_hooks();
+        assert!(hooks.iter().any(|h| h.name() == "apt-post-invoke"));
     }
 
     #[test]
