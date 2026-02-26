@@ -41,6 +41,10 @@ pub struct UpstreamProject {
     /// Star/favorite count (e.g. GitHub stars)
     #[serde(default)]
     pub stars: Option<u64>,
+
+    /// Short project description (e.g. from GitHub)
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 /// A way to financially support a project.

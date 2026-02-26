@@ -110,7 +110,8 @@ impl Storage {
                 is_open_source    INTEGER,
                 documentation_url TEXT,
                 good_first_issues_url TEXT,
-                stars             INTEGER
+                stars             INTEGER,
+                description       TEXT
             );
 
             CREATE TABLE IF NOT EXISTS donation_history (
@@ -140,6 +141,13 @@ impl Storage {
             ",
             )
             .context("Failed to run database migrations")?;
+
+        // Add description column to projects table (for databases created before this field existed).
+        // Ignore the error — it fires harmlessly when the column already exists.
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE projects ADD COLUMN description TEXT;");
+
         Ok(())
     }
 
@@ -312,8 +320,8 @@ impl Storage {
             "INSERT OR REPLACE INTO projects
              (url, name, repo_url, homepage, licenses, funding, bug_tracker,
               contributing_url, is_open_source, documentation_url,
-              good_first_issues_url, stars)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+              good_first_issues_url, stars, description)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 url,
                 project.name,
@@ -327,6 +335,7 @@ impl Storage {
                 project.documentation_url,
                 project.good_first_issues_url,
                 project.stars.map(|s| s as i64),
+                project.description,
             ],
         )?;
 
@@ -338,7 +347,7 @@ impl Storage {
         let mut stmt = self.conn.prepare(
             "SELECT name, repo_url, homepage, licenses, funding, bug_tracker,
                     contributing_url, is_open_source, documentation_url,
-                    good_first_issues_url, stars
+                    good_first_issues_url, stars, description
              FROM projects WHERE url = ?1",
         )?;
 
@@ -355,6 +364,7 @@ impl Storage {
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, Option<String>>(9)?,
                 row.get::<_, Option<i64>>(10)?,
+                row.get::<_, Option<String>>(11)?,
             ))
         });
 
@@ -371,6 +381,7 @@ impl Storage {
                 documentation_url,
                 good_first_issues_url,
                 stars,
+                description,
             )) => {
                 let licenses: Vec<String> = serde_json::from_str(&licenses_json)
                     .context("Failed to deserialize licenses")?;
@@ -388,6 +399,7 @@ impl Storage {
                     documentation_url,
                     good_first_issues_url,
                     stars: stars.map(|s| s as u64),
+                    description,
                 }))
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -400,7 +412,7 @@ impl Storage {
         let mut stmt = self.conn.prepare(
             "SELECT name, repo_url, homepage, licenses, funding, bug_tracker,
                     contributing_url, is_open_source, documentation_url,
-                    good_first_issues_url, stars
+                    good_first_issues_url, stars, description
              FROM projects ORDER BY name",
         )?;
 
@@ -418,6 +430,7 @@ impl Storage {
                     row.get::<_, Option<String>>(8)?,
                     row.get::<_, Option<String>>(9)?,
                     row.get::<_, Option<i64>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
                 ))
             })?
             .map(|r| {
@@ -433,6 +446,7 @@ impl Storage {
                     documentation_url,
                     good_first_issues_url,
                     stars,
+                    description,
                 ) = r?;
                 let licenses: Vec<String> = serde_json::from_str(&licenses_json)
                     .context("Failed to deserialize licenses")?;
@@ -450,6 +464,7 @@ impl Storage {
                     documentation_url,
                     good_first_issues_url,
                     stars: stars.map(|s| s as u64),
+                    description,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -960,6 +975,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
 
         storage
@@ -1006,6 +1022,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
         storage
             .save_enrichment("https://example.org", &project1)
@@ -1023,6 +1040,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
         storage
             .save_enrichment("https://example.org", &project2)
@@ -1103,6 +1121,7 @@ mod tests {
             documentation_url: Some("https://firefox-source-docs.mozilla.org".to_string()),
             good_first_issues_url: Some("https://codetribute.mozilla.org".to_string()),
             stars: Some(1234),
+            description: None,
         }
     }
 
@@ -1157,6 +1176,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
 
         storage.save_project(&project).unwrap();
@@ -1179,6 +1199,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
 
         assert!(storage.save_project(&project).is_err());
@@ -1328,6 +1349,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
         storage
             .save_enrichment("https://a.example.org", &project)

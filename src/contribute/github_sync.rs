@@ -438,6 +438,7 @@ mod tests {
                 documentation_url: None,
                 good_first_issues_url: None,
                 stars: None,
+                description: None,
             },
             UpstreamProject {
                 name: "gitlab-project".to_string(),
@@ -451,6 +452,7 @@ mod tests {
                 documentation_url: None,
                 good_first_issues_url: None,
                 stars: None,
+                description: None,
             },
             UpstreamProject {
                 name: "no-repo".to_string(),
@@ -464,6 +466,7 @@ mod tests {
                 documentation_url: None,
                 good_first_issues_url: None,
                 stars: None,
+                description: None,
             },
             UpstreamProject {
                 name: "rust".to_string(),
@@ -477,6 +480,7 @@ mod tests {
                 documentation_url: None,
                 good_first_issues_url: None,
                 stars: None,
+                description: None,
             },
         ];
 
