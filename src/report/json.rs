@@ -26,6 +26,9 @@ pub struct JsonProject {
     /// Funding channels for this project.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub funding: Vec<FundingChannel>,
+    /// Short project description (e.g. from GitHub).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Star/favorite count (e.g. GitHub stars).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stars: Option<u64>,
@@ -80,6 +83,7 @@ pub fn print_json(
                 project_urls: g.project_urls.clone(),
                 package_names,
                 funding: enriched.map(|e| e.funding.clone()).unwrap_or_default(),
+                description: enriched.and_then(|e| e.description.clone()),
                 stars: enriched.and_then(|e| e.stars),
                 is_open_source: enriched.and_then(|e| e.is_open_source),
                 contributions: project_contributions,
@@ -157,6 +161,7 @@ mod tests {
                     funding: vec![],
                     stars: None,
                     is_open_source: None,
+                    description: None,
                     contributions: vec![],
                 },
                 JsonProject {
@@ -166,6 +171,7 @@ mod tests {
                     funding: vec![],
                     stars: None,
                     is_open_source: None,
+                    description: None,
                     contributions: vec![],
                 },
             ],
@@ -276,6 +282,7 @@ mod tests {
                     funding: vec![],
                     stars: None,
                     is_open_source: None,
+                    description: None,
                     contributions: vec![],
                 },
                 JsonProject {
@@ -285,6 +292,7 @@ mod tests {
                     funding: vec![],
                     stars: None,
                     is_open_source: None,
+                    description: None,
                     contributions: vec![],
                 },
             ],
@@ -378,6 +386,7 @@ mod tests {
                     funding: vec![],
                     stars: None,
                     is_open_source: None,
+                    description: None,
                     contributions: vec![
                         ContributionOpportunity {
                             kind: ContributionKind::GoodFirstIssue,
@@ -400,6 +409,7 @@ mod tests {
                     funding: vec![],
                     stars: None,
                     is_open_source: None,
+                    description: None,
                     contributions: vec![],
                 },
             ],
@@ -444,6 +454,7 @@ mod tests {
                 project_urls: vec![],
                 package_names: vec!["linux".to_string()],
                 funding: vec![],
+                description: None,
                 stars: None,
                 is_open_source: None,
                 contributions: vec![ContributionOpportunity {

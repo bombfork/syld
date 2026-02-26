@@ -429,6 +429,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
 
         let opportunities = backend.find_opportunities(&project).unwrap();

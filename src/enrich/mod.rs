@@ -76,6 +76,9 @@ pub fn active_backends(_config: &Config) -> Vec<Box<dyn EnrichmentBackend + Send
 pub fn merge_enrichment(base: &UpstreamProject, enriched: &UpstreamProject) -> UpstreamProject {
     let mut result = base.clone();
 
+    if result.description.is_none() && enriched.description.is_some() {
+        result.description = enriched.description.clone();
+    }
     if result.homepage.is_none() && enriched.homepage.is_some() {
         result.homepage = enriched.homepage.clone();
     }
@@ -168,6 +171,7 @@ pub fn enrich_packages(
                         documentation_url: None,
                         good_first_issues_url: None,
                         stars: None,
+                        description: None,
                     });
             }
         }
@@ -292,6 +296,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         }
     }
 
@@ -390,6 +395,33 @@ mod tests {
         let result = merge_enrichment(&base, &enriched);
         assert_eq!(result.homepage.as_deref(), Some("https://example.com"));
         assert_eq!(result.stars, Some(42));
+    }
+
+    #[test]
+    fn merge_fills_description() {
+        let base = empty_project("test");
+        let enriched = UpstreamProject {
+            description: Some("A cool project".to_string()),
+            ..empty_project("test")
+        };
+
+        let result = merge_enrichment(&base, &enriched);
+        assert_eq!(result.description.as_deref(), Some("A cool project"));
+    }
+
+    #[test]
+    fn merge_does_not_overwrite_existing_description() {
+        let base = UpstreamProject {
+            description: Some("Original desc".to_string()),
+            ..empty_project("test")
+        };
+        let enriched = UpstreamProject {
+            description: Some("New desc".to_string()),
+            ..empty_project("test")
+        };
+
+        let result = merge_enrichment(&base, &enriched);
+        assert_eq!(result.description.as_deref(), Some("Original desc"));
     }
 
     #[test]

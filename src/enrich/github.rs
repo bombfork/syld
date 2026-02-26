@@ -26,7 +26,6 @@ struct GhRepo {
     #[serde(rename = "hasIssuesEnabled")]
     has_issues_enabled: Option<bool>,
     url: Option<String>,
-    #[allow(dead_code)]
     description: Option<String>,
 }
 
@@ -66,6 +65,9 @@ impl EnrichmentBackend for GitHubBackend {
         if let Ok(repo) = fetch_repo_metadata(&owner_repo) {
             if enriched.stars.is_none() {
                 enriched.stars = repo.stargazer_count;
+            }
+            if enriched.description.is_none() {
+                enriched.description = repo.description.clone();
             }
             if enriched.homepage.is_none()
                 && let Some(hp) = &repo.homepage_url

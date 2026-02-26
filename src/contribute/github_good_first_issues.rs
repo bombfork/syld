@@ -282,6 +282,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
 
         let result = backend.find_opportunities(&project).unwrap();
@@ -303,6 +304,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         };
 
         let result = backend.find_opportunities(&project).unwrap();

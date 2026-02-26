@@ -82,6 +82,10 @@
             "type": "string"
           }
         },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Short project description (e.g. from GitHub), or null if unavailable."
+        },
         "funding": {
           "type": "array",
           "description": "Funding channels for this project. Omitted when empty.",

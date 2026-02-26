@@ -336,6 +336,7 @@ mod tests {
             documentation_url: None,
             good_first_issues_url: None,
             stars: None,
+            description: None,
         }
     }
 
