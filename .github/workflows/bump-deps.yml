@@ -1,0 +1,62 @@
+name: Bump Dependencies
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 6' # Every Saturday at midnight
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MISE_EXPERIMENTAL: true
+
+jobs:
+  bump-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - run: mise run deps:update
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.MAINTENANCE_APP_ID }}
+          private-key: ${{ secrets.MAINTENANCE_APP_PEM }}
+      - uses: peter-evans/create-pull-request@v7
+        id: create_pr
+        with:
+          commit-message: 'fix: upgrade all dependencies at once'
+          title: 'fix: upgrade all dependencies at once'
+          body: |
+            This PR bumps all dependencies to their latest versions.
+            It was created by [this](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) workflow run.
+          branch: 'bump-deps'
+          delete-branch: true
+          labels: 'dependencies'
+          token: ${{ steps.app-token.outputs.token }}
+          sign-commits: true
+      - name: Notify on failure
+        if: failure()
+        uses: appleboy/discord-action@v1.2.0
+        with:
+          webhook_url: ${{ secrets.DISCORD_TECH_WEBHOOK }}
+          message: |
+            The bump dependencies workflow failed.
+            Please check the logs for more details
+            - **Workflow**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Notify on Discord
+        if: ${{ steps.create_pr.outputs.pull-request-number }}
+        uses: appleboy/discord-action@v1.2.0
+        with:
+          webhook_url: ${{ secrets.DISCORD_TECH_WEBHOOK }}
+          message: |
+            A new pull request has been created to bump dependencies:
+            - **PR**: ${{ steps.create_pr.outputs.pull-request-url }}

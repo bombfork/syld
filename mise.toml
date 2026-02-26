@@ -28,6 +28,10 @@ run = "cargo build"
 description = "Run tests"
 run = "cargo test"
 
+[tasks."deps:update"]
+description = "Update Rust dependencies"
+run = "cargo update"
+
 [tasks.check]
 description = "Run all checks (format, lint, build, test)"
 depends = ["fmt:check", "lint:check", "build", "test"]
