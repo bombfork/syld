@@ -60,6 +60,10 @@ enum Commands {
         /// Maximum number of projects to display (0 for all)
         #[arg(short = 'n', long, alias = "count", default_value = "0")]
         limit: usize,
+
+        /// Interactively paginate through results when --limit is set
+        #[arg(long)]
+        paginate: bool,
     },
 
     /// Manage the local cache
@@ -214,7 +218,11 @@ fn main() -> Result<()> {
             force_refresh,
             jobs,
         }) => cmd_scan(&config, force_refresh, jobs),
-        Some(Commands::Report { format, limit }) => cmd_report(&config, &format, limit),
+        Some(Commands::Report {
+            format,
+            limit,
+            paginate,
+        }) => cmd_report(&config, &format, limit, paginate),
         Some(Commands::Cache { command }) => cmd_cache(&command),
         Some(Commands::Config { command }) => cmd_config(&config, &command),
         Some(Commands::Hook { command }) => cmd_hook(&config, &command),
@@ -287,7 +295,7 @@ fn cmd_scan(config: &Config, force_refresh: bool, jobs: Option<usize>) -> Result
     Ok(())
 }
 
-fn cmd_report(config: &Config, format: &ReportFormat, limit: usize) -> Result<()> {
+fn cmd_report(config: &Config, format: &ReportFormat, limit: usize, paginate: bool) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     let scan = storage
         .latest_scan()
@@ -331,6 +339,7 @@ fn cmd_report(config: &Config, format: &ReportFormat, limit: usize) -> Result<()
             terminal::print_summary(
                 &packages,
                 limit,
+                paginate,
                 scan.timestamp,
                 &contributions,
                 &enrichment,

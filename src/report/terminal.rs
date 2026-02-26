@@ -153,12 +153,107 @@ fn format_package_terminal(pkg: &InstalledPackage, show_source: bool) -> String 
     }
 }
 
+fn render_group_table(
+    groups: &[ProjectGroup],
+    has_multiple_sources: bool,
+    enrichment: &EnrichmentMap,
+) {
+    let mut detail_table = Table::new();
+    detail_table.set_content_arrangement(ContentArrangement::Dynamic);
+    detail_table.set_header(vec!["Project URL", "Packages"]);
+
+    for group in groups {
+        let base_url = if group.url.is_empty() {
+            "(no project URL)".to_string()
+        } else if !group.project_urls.is_empty() {
+            format!("{}/*", group.url)
+        } else {
+            group.url.clone()
+        };
+        let enriched = lookup_enrichment(&group.url, &group.project_urls, enrichment);
+        let url_display = if let Some(stars) = enriched.and_then(|e| e.stars) {
+            format!("{base_url} (\u{2605} {stars})")
+        } else {
+            base_url
+        };
+        let pkg_names: Vec<_> = group
+            .packages
+            .iter()
+            .map(|p| format_package_terminal(p, has_multiple_sources))
+            .collect();
+        detail_table.add_row(vec![&url_display, &pkg_names.join(", ")]);
+    }
+
+    println!("{detail_table}");
+}
+
+fn print_project_table(
+    groups: &[ProjectGroup],
+    limit: usize,
+    interactive_paginate: bool,
+    has_multiple_sources: bool,
+    enrichment: &EnrichmentMap,
+) {
+    if !interactive_paginate || limit == 0 {
+        // Single page mode
+        let (page, remaining) = paginate(groups, limit);
+        render_group_table(page, has_multiple_sources, enrichment);
+
+        if remaining > 0 {
+            println!(
+                "\n  ... and {} more projects (use --limit 0 to show all, or --paginate)",
+                remaining
+            );
+        }
+        return;
+    }
+
+    // Interactive pagination
+    let mut offset = 0;
+    loop {
+        let end = if offset + limit >= groups.len() {
+            groups.len()
+        } else {
+            offset + limit
+        };
+        let page = &groups[offset..end];
+        let remaining = groups.len() - end;
+
+        render_group_table(page, has_multiple_sources, enrichment);
+
+        if remaining == 0 {
+            break;
+        }
+
+        let next_page_size = remaining.min(limit);
+        eprint!(
+            "\n  ... {} more projects — press Enter for next {}, or q to stop: ",
+            remaining, next_page_size
+        );
+
+        let mut input = String::new();
+        if std::io::stdin().read_line(&mut input).is_err() {
+            break;
+        }
+        let input = input.trim();
+        if input.eq_ignore_ascii_case("q") || input.eq_ignore_ascii_case("quit") {
+            break;
+        }
+
+        offset = end;
+        println!();
+    }
+}
+
 /// Print a summary of discovered packages to the terminal.
 ///
 /// `limit` controls how many project groups to display (0 = all).
+/// When `interactive_paginate` is true and `limit > 0`, the user is prompted
+/// to continue page by page instead of showing a static "N more" message.
 pub fn print_summary(
     packages: &[InstalledPackage],
     limit: usize,
+    interactive_paginate: bool,
     timestamp: DateTime<Utc>,
     contributions: &ContributionMap,
     enrichment: &EnrichmentMap,
@@ -233,45 +328,13 @@ pub fn print_summary(
 
     println!();
 
-    let (page, remaining) = paginate(&groups, limit);
-
-    let mut detail_table = Table::new();
-    detail_table.set_content_arrangement(ContentArrangement::Dynamic);
-    detail_table.set_header(vec!["Project URL", "Packages"]);
-
-    for group in page {
-        let url_display;
-        let base_url = if group.url.is_empty() {
-            "(no project URL)".to_string()
-        } else if !group.project_urls.is_empty() {
-            format!("{}/*", group.url)
-        } else {
-            group.url.clone()
-        };
-        let enriched = lookup_enrichment(&group.url, &group.project_urls, enrichment);
-        let url_cell = if let Some(stars) = enriched.and_then(|e| e.stars) {
-            url_display = format!("{base_url} (\u{2605} {stars})");
-            &url_display
-        } else {
-            url_display = base_url;
-            &url_display
-        };
-        let pkg_names: Vec<_> = group
-            .packages
-            .iter()
-            .map(|p| format_package_terminal(p, has_multiple_sources))
-            .collect();
-        detail_table.add_row(vec![url_cell, &pkg_names.join(", ")]);
-    }
-
-    println!("{detail_table}");
-
-    if remaining > 0 {
-        println!(
-            "\n  ... and {} more projects (use --limit 0 to show all)",
-            remaining
-        );
-    }
+    print_project_table(
+        &groups,
+        limit,
+        interactive_paginate,
+        has_multiple_sources,
+        enrichment,
+    );
 
     // Ways to Help section
     if !contributions.is_empty() {
