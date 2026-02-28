@@ -200,7 +200,7 @@ fn print_project_table(
         render_group_table(page, has_multiple_sources, enrichment);
 
         if remaining > 0 {
-            println!(
+            eprintln!(
                 "\n  ... and {} more projects (use --limit 0 to show all, or --paginate)",
                 remaining
             );
@@ -241,7 +241,7 @@ fn print_project_table(
         }
 
         offset = end;
-        println!();
+        eprintln!();
     }
 }
 
@@ -260,7 +260,7 @@ pub fn print_summary(
     contribution_summary: Option<&ContributionSummary>,
 ) {
     if packages.is_empty() {
-        println!("No packages found.");
+        eprintln!("No packages found.");
         return;
     }
 

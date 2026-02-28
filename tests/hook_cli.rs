@@ -21,7 +21,7 @@ fn hook_list_succeeds_and_shows_pacman() {
         .args(["hook", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("pacman-post-transaction"));
+        .stderr(predicate::str::contains("pacman-post-transaction"));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn hook_list_succeeds_and_shows_apt() {
         .args(["hook", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("apt-post-invoke"));
+        .stderr(predicate::str::contains("apt-post-invoke"));
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn hook_list_succeeds_and_shows_dnf() {
         .args(["hook", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("dnf-post-transaction"));
+        .stderr(predicate::str::contains("dnf-post-transaction"));
 }
 
 #[test]
@@ -119,10 +119,10 @@ fn hook_list_shows_availability_status() {
         .unwrap();
 
     assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
     // Should show either "available" or "not available"
     assert!(
-        stdout.contains("available"),
+        stderr.contains("available"),
         "hook list should show availability status"
     );
 }

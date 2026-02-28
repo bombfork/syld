@@ -169,8 +169,8 @@ fn contribute_docs_with_project_prints_url() {
         .args(["contribute", "docs", "--project", "curl/curl"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Contributing guide:"))
-        .stdout(predicate::str::contains(
+        .stderr(predicate::str::contains("Contributing guide:"))
+        .stderr(predicate::str::contains(
             "https://github.com/curl/curl/blob/HEAD/CONTRIBUTING.md",
         ));
 }

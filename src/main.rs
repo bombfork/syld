@@ -511,21 +511,21 @@ fn cmd_contribute_star(project: Option<&str>) -> Result<()> {
             .context("Failed to run gh api")?;
 
         if output.status.success() {
-            println!("\u{2b50} Starred {owner_repo} on GitHub");
-            println!("  {repo_url}");
+            eprintln!("\u{2b50} Starred {owner_repo} on GitHub");
+            eprintln!("  {repo_url}");
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if stderr.contains("422") || stderr.contains("already") {
-                println!("\u{2b50} {owner_repo} is already starred");
-                println!("  {repo_url}");
+                eprintln!("\u{2b50} {owner_repo} is already starred");
+                eprintln!("  {repo_url}");
             } else {
                 anyhow::bail!("Failed to star {owner_repo}: {stderr}");
             }
         }
     } else {
         // Fallback: print the URL
-        println!("\u{2b50} Star {owner_repo} on GitHub:");
-        println!("  {repo_url}");
+        eprintln!("\u{2b50} Star {owner_repo} on GitHub:");
+        eprintln!("  {repo_url}");
         eprintln!(
             "\nTip: install and authenticate the `gh` CLI to star directly from the terminal."
         );
@@ -606,16 +606,16 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
                 serde_json::from_str(&stdout).context("Failed to parse gh issue list JSON")?;
 
             if issues.is_empty() {
-                println!("No good first issues found for {owner_repo}");
-                println!("  Browse all issues: https://github.com/{owner_repo}/issues");
+                eprintln!("No good first issues found for {owner_repo}");
+                eprintln!("  Browse all issues: https://github.com/{owner_repo}/issues");
             } else {
-                println!(
+                eprintln!(
                     "Good first issues for {owner_repo} ({} found):\n",
                     issues.len()
                 );
                 for (i, issue) in issues.iter().enumerate() {
-                    println!("  {}. {}", i + 1, issue.title);
-                    println!("     {}", issue.url);
+                    eprintln!("  {}. {}", i + 1, issue.title);
+                    eprintln!("     {}", issue.url);
                 }
             }
         } else {
@@ -624,8 +624,8 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
                 || stderr.contains("not found")
                 || stderr.contains("403")
             {
-                println!("Could not access issues for {owner_repo}");
-                println!(
+                eprintln!("Could not access issues for {owner_repo}");
+                eprintln!(
                     "  Browse issues: https://github.com/{owner_repo}/issues?q=label:%22good+first+issue%22"
                 );
             } else {
@@ -634,8 +634,8 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
         }
     } else {
         // Fallback: print the URL
-        println!("Good first issues for {owner_repo}:");
-        println!("  https://github.com/{owner_repo}/issues?q=label:%22good+first+issue%22");
+        eprintln!("Good first issues for {owner_repo}:");
+        eprintln!("  https://github.com/{owner_repo}/issues?q=label:%22good+first+issue%22");
         eprintln!(
             "\nTip: install and authenticate the `gh` CLI to list issues directly from the terminal."
         );
@@ -727,9 +727,9 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
-    println!("Funding channels:\n");
+    eprintln!("Funding channels:\n");
     for channel in &funding {
-        println!("  {} — {}", channel.platform, channel.url);
+        eprintln!("  {} — {}", channel.platform, channel.url);
     }
 
     // Record the contribution in the database
@@ -773,7 +773,7 @@ fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
                     // No known contributing URL — verify the file exists before
                     // sending the user to a potentially dead link.
                     if is_gh_available() && !contributing_file_exists(&owner_repo) {
-                        println!(
+                        eprintln!(
                             "{owner_repo} does not have a CONTRIBUTING.md yet — \
                              creating one would be a great first contribution!"
                         );
@@ -813,8 +813,8 @@ fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
         }
     };
 
-    println!("Contributing guide:");
-    println!("  {contributing_url}");
+    eprintln!("Contributing guide:");
+    eprintln!("  {contributing_url}");
 
     // Record the contribution in the database
     if !storage
@@ -1034,7 +1034,7 @@ fn cmd_hook_list() -> Result<()> {
         } else {
             "not available"
         };
-        println!("  {:<30} {} [{}]", h.name(), h.description(), status);
+        eprintln!("  {:<30} {} [{}]", h.name(), h.description(), status);
     }
 
     Ok(())
