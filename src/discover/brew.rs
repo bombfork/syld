@@ -100,41 +100,35 @@ fn parse_brew_info(json: &str) -> Result<Vec<InstalledPackage>> {
 
     let mut packages = Vec::with_capacity(total);
 
-    for formula in &info.formulae {
+    for formula in info.formulae {
         let version = formula
             .installed
-            .first()
-            .map(|v| v.version.clone())
+            .into_iter()
+            .next()
+            .map(|v| v.version)
             .unwrap_or_else(|| "unknown".to_string());
 
-        let licenses = formula
-            .license
-            .as_ref()
-            .map(|l| vec![l.clone()])
-            .unwrap_or_default();
+        let licenses = formula.license.map(|l| vec![l]).unwrap_or_default();
 
         packages.push(InstalledPackage {
-            name: formula.name.clone(),
+            name: formula.name,
             version,
-            description: formula.desc.clone(),
-            url: formula.homepage.clone(),
+            description: formula.desc,
+            url: formula.homepage,
             source: PackageSource::Brew,
             licenses,
         });
         pb.inc(1);
     }
 
-    for cask in &info.casks {
-        let version = cask
-            .version
-            .clone()
-            .unwrap_or_else(|| "unknown".to_string());
+    for cask in info.casks {
+        let version = cask.version.unwrap_or_else(|| "unknown".to_string());
 
         packages.push(InstalledPackage {
-            name: cask.token.clone(),
+            name: cask.token,
             version,
-            description: cask.desc.clone(),
-            url: cask.homepage.clone(),
+            description: cask.desc,
+            url: cask.homepage,
             source: PackageSource::Brew,
             licenses: Vec::new(),
         });

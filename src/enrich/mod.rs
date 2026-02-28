@@ -67,8 +67,8 @@ pub fn active_backends(_config: &Config) -> Vec<Box<dyn EnrichmentBackend + Send
 ///
 /// Non-empty fields from `enriched` overlay `base`. Funding channels are
 /// deduplicated by URL.
-pub fn merge_enrichment(base: &UpstreamProject, enriched: &UpstreamProject) -> UpstreamProject {
-    let mut result = base.clone();
+pub fn merge_enrichment(base: UpstreamProject, enriched: &UpstreamProject) -> UpstreamProject {
+    let mut result = base;
 
     if result.description.is_none() && enriched.description.is_some() {
         result.description = enriched.description.clone();
@@ -218,7 +218,7 @@ pub fn enrich_packages(
                 for backend in &backends {
                     match backend.enrich(&enriched) {
                         Ok(result) => {
-                            enriched = merge_enrichment(&enriched, &result);
+                            enriched = merge_enrichment(enriched, &result);
                         }
                         Err(e) => {
                             eprintln!(
@@ -305,7 +305,7 @@ mod tests {
             ..empty_project("test")
         };
 
-        let result = merge_enrichment(&base, &enriched);
+        let result = merge_enrichment(base, &enriched);
         assert_eq!(result.homepage.as_deref(), Some("https://example.com"));
         assert_eq!(result.stars, Some(42));
         assert_eq!(
@@ -328,7 +328,7 @@ mod tests {
             ..empty_project("test")
         };
 
-        let result = merge_enrichment(&base, &enriched);
+        let result = merge_enrichment(base, &enriched);
         assert_eq!(result.homepage.as_deref(), Some("https://original.com"));
         assert_eq!(result.stars, Some(100));
     }
@@ -356,7 +356,7 @@ mod tests {
             ..empty_project("test")
         };
 
-        let result = merge_enrichment(&base, &enriched);
+        let result = merge_enrichment(base, &enriched);
         assert_eq!(result.funding.len(), 2);
         assert_eq!(result.funding[0].platform, "GitHub Sponsors");
         assert_eq!(result.funding[1].platform, "Open Collective");
@@ -373,7 +373,7 @@ mod tests {
             ..empty_project("test")
         };
 
-        let result = merge_enrichment(&base, &enriched);
+        let result = merge_enrichment(base, &enriched);
         assert_eq!(result.licenses, vec!["MIT", "Apache-2.0"]);
     }
 
@@ -386,7 +386,7 @@ mod tests {
         };
         let enriched = empty_project("test");
 
-        let result = merge_enrichment(&base, &enriched);
+        let result = merge_enrichment(base, &enriched);
         assert_eq!(result.homepage.as_deref(), Some("https://example.com"));
         assert_eq!(result.stars, Some(42));
     }
@@ -399,7 +399,7 @@ mod tests {
             ..empty_project("test")
         };
 
-        let result = merge_enrichment(&base, &enriched);
+        let result = merge_enrichment(base, &enriched);
         assert_eq!(result.description.as_deref(), Some("A cool project"));
     }
 
@@ -414,7 +414,7 @@ mod tests {
             ..empty_project("test")
         };
 
-        let result = merge_enrichment(&base, &enriched);
+        let result = merge_enrichment(base, &enriched);
         assert_eq!(result.description.as_deref(), Some("Original desc"));
     }
 
