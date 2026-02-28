@@ -42,7 +42,7 @@ pub fn run_setup(config: &Config) -> Result<()> {
         let freq_options = ["daily", "weekly", "monthly"];
         let freq_idx = Select::new()
             .with_prompt("Scan frequency")
-            .items(&freq_options)
+            .items(freq_options)
             .default(1) // weekly
             .interact()
             .context("Failed to read frequency")?;

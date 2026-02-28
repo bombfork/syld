@@ -1,6 +1,7 @@
 [tools]
 rust = "stable"
 "cargo:cargo-binstall" = "latest"
+"cargo:cargo-edit" = "latest"
 hk = "latest"
 pkl = "latest"
 
@@ -30,7 +31,7 @@ run = "cargo test"
 
 [tasks."deps:update"]
 description = "Update Rust dependencies"
-run = "cargo update"
+run = "cargo upgrade --incompatible && cargo update"
 
 [tasks.check]
 description = "Run all checks (format, lint, build, test)"
