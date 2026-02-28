@@ -1,5 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+//! HTML report generator.
+//!
+//! This module renders a self-contained HTML document summarising the packages
+//! discovered on the local system, grouped by upstream project. The output is
+//! printed to stdout and can be redirected to a file or piped into a browser.
+//!
+//! # Sections
+//!
+//! The generated report includes the following sections (some are conditional):
+//!
+//! - **Header** — scan date, total packages, upstream project count.
+//! - **Sources** — per-package-manager breakdown (e.g. pacman, apt).
+//! - **Upstream projects** — packages grouped by project URL. When multiple
+//!   package sources are present, each package name is annotated with a source
+//!   badge.
+//! - **Ways to Help** — non-monetary contribution opportunities, shown when
+//!   a [`ContributionMap`] is provided.
+//! - **Your Contributions** — aggregated contribution history from the
+//!   [`ContributionSummary`].
+//! - **Funding** — donation links discovered during enrichment.
+//!
+//! # Usage
+//!
+//! Call [`print_html()`] with the discovered packages, a timestamp, and
+//! optional enrichment / contribution data. The function writes the complete
+//! HTML document to stdout in a single pass.
+
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
