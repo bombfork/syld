@@ -11,13 +11,9 @@
 //! Enrichment sources:
 //! - GitHub API (via `gh` CLI) — stars, homepage, license, issues, FUNDING.yml
 //! - License classification — OSI-approved status from SPDX identifiers
-//! - Open Collective API — funding channel lookup
-//! - Liberapay API — funding channel lookup
 
 pub mod github;
-pub mod liberapay;
 pub mod license_classify;
-pub mod open_collective;
 
 use std::collections::HashMap;
 
@@ -59,8 +55,6 @@ pub fn active_backends(_config: &Config) -> Vec<Box<dyn EnrichmentBackend + Send
     let candidates: Vec<Box<dyn EnrichmentBackend + Send + Sync>> = vec![
         Box::new(license_classify::LicenseClassifyBackend),
         Box::new(github::GitHubBackend),
-        Box::new(open_collective::OpenCollectiveBackend),
-        Box::new(liberapay::LiberapayBackend),
     ];
 
     candidates
