@@ -2,6 +2,7 @@
 rust = "stable"
 "cargo:cargo-binstall" = "latest"
 "cargo:cargo-edit" = "latest"
+"cargo:cargo-llvm-cov" = "latest"
 hk = "latest"
 pkl = "latest"
 
@@ -28,6 +29,14 @@ run = "cargo build"
 [tasks.test]
 description = "Run tests"
 run = "cargo test"
+
+[tasks.coverage]
+description = "Open HTML test coverage report"
+run = "cargo llvm-cov --html --open"
+
+[tasks."coverage:check"]
+description = "Fail if test coverage drops below 80%"
+run = "cargo llvm-cov --fail-under-lines 80"
 
 [tasks."deps:update"]
 description = "Update Rust dependencies"
