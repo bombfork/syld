@@ -190,10 +190,14 @@ fn fetch_funding_yml(owner_repo: &str) -> Result<Vec<FundingChannel>> {
         .context("Failed to run gh api for FUNDING.yml")?;
 
     if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stderr.contains("Not Found") && !stderr.contains("404") {
+            eprintln!("warning: failed to fetch FUNDING.yml for {owner_repo}: {stderr}");
+        }
         return Ok(Vec::new());
     }
 
-    let stdout = String::from_utf8(output.stdout).unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let content = decode_base64_content(&stdout);
 
     Ok(parse_funding_yml(&content))
@@ -205,7 +209,13 @@ fn decode_base64_content(encoded: &str) -> String {
     let clean: String = encoded.chars().filter(|c| !c.is_whitespace()).collect();
 
     // Simple base64 decode without pulling in a dependency
-    base64_decode(&clean).unwrap_or_default()
+    match base64_decode(&clean) {
+        Some(s) => s,
+        None => {
+            eprintln!("warning: failed to decode base64 content from GitHub API");
+            String::new()
+        }
+    }
 }
 
 fn base64_decode(input: &str) -> Option<String> {

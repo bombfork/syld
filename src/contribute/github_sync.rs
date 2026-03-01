@@ -135,7 +135,7 @@ fn fetch_user_issues(owner_repo: &str) -> Result<Vec<SearchItem>> {
             || stderr.contains("401")
             || stderr.contains("422")
         {
-            eprintln!("    warning: skipping issues for {owner_repo}: {stderr}");
+            eprintln!("warning: skipping issues for {owner_repo}: {stderr}");
             return Ok(Vec::new());
         }
         anyhow::bail!("gh api search/issues failed for {owner_repo}: {stderr}");
@@ -162,7 +162,7 @@ fn fetch_user_pull_requests(owner_repo: &str) -> Result<Vec<SearchItem>> {
             || stderr.contains("401")
             || stderr.contains("422")
         {
-            eprintln!("    warning: skipping PRs for {owner_repo}: {stderr}");
+            eprintln!("warning: skipping PRs for {owner_repo}: {stderr}");
             return Ok(Vec::new());
         }
         anyhow::bail!("gh api search/issues (PRs) failed for {owner_repo}: {stderr}");
@@ -232,10 +232,19 @@ pub fn sync_github_contributions(
             for gp in &github_projects {
                 let key = gp.owner_repo.to_lowercase();
                 if starred.contains(&key) {
-                    if storage
+                    let already_recorded = match storage
                         .has_contribution(&gp.repo_url, &ContributionRecordKind::Star)
-                        .unwrap_or(false)
                     {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!(
+                                "warning: failed to check star contribution for {}: {e}",
+                                gp.project.name
+                            );
+                            false
+                        }
+                    };
+                    if already_recorded {
                         continue;
                     }
                     if let Err(e) = storage.save_contribution(
@@ -246,10 +255,7 @@ pub fn sync_github_contributions(
                         Utc::now(),
                         Some("github_sync"),
                     ) {
-                        eprintln!(
-                            "    warning: failed to save star for {}: {e}",
-                            gp.project.name
-                        );
+                        eprintln!("warning: failed to save star for {}: {e}", gp.project.name);
                         continue;
                     }
                     result.stars += 1;
@@ -257,7 +263,7 @@ pub fn sync_github_contributions(
             }
         }
         Err(e) => {
-            eprintln!("  warning: failed to fetch starred repos: {e}");
+            eprintln!("warning: failed to fetch starred repos: {e}");
         }
     }
 
@@ -268,10 +274,17 @@ pub fn sync_github_contributions(
             Ok(issues) => {
                 for item in &issues {
                     // Dedup by URL since a project can have multiple issues
-                    if storage
-                        .has_contribution_url(&item.html_url)
-                        .unwrap_or(false)
-                    {
+                    let already_recorded = match storage.has_contribution_url(&item.html_url) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!(
+                                "warning: failed to check contribution URL {}: {e}",
+                                item.html_url
+                            );
+                            false
+                        }
+                    };
+                    if already_recorded {
                         continue;
                     }
                     let dt = parse_datetime(&item.created_at);
@@ -283,20 +296,14 @@ pub fn sync_github_contributions(
                         dt,
                         Some("github_sync"),
                     ) {
-                        eprintln!(
-                            "    warning: failed to save issue for {}: {e}",
-                            gp.project.name
-                        );
+                        eprintln!("warning: failed to save issue for {}: {e}", gp.project.name);
                     } else {
                         result.issues += 1;
                     }
                 }
             }
             Err(e) => {
-                eprintln!(
-                    "    warning: failed to fetch issues for {}: {e}",
-                    gp.owner_repo
-                );
+                eprintln!("warning: failed to fetch issues for {}: {e}", gp.owner_repo);
             }
         }
 
@@ -305,10 +312,17 @@ pub fn sync_github_contributions(
             Ok(prs) => {
                 for item in &prs {
                     // Dedup by URL since a project can have multiple PRs
-                    if storage
-                        .has_contribution_url(&item.html_url)
-                        .unwrap_or(false)
-                    {
+                    let already_recorded = match storage.has_contribution_url(&item.html_url) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!(
+                                "warning: failed to check contribution URL {}: {e}",
+                                item.html_url
+                            );
+                            false
+                        }
+                    };
+                    if already_recorded {
                         continue;
                     }
                     let dt = parse_datetime(&item.created_at);
@@ -320,20 +334,14 @@ pub fn sync_github_contributions(
                         dt,
                         Some("github_sync"),
                     ) {
-                        eprintln!(
-                            "    warning: failed to save PR for {}: {e}",
-                            gp.project.name
-                        );
+                        eprintln!("warning: failed to save PR for {}: {e}", gp.project.name);
                     } else {
                         result.pull_requests += 1;
                     }
                 }
             }
             Err(e) => {
-                eprintln!(
-                    "    warning: failed to fetch PRs for {}: {e}",
-                    gp.owner_repo
-                );
+                eprintln!("warning: failed to fetch PRs for {}: {e}", gp.owner_repo);
             }
         }
     }

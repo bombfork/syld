@@ -126,15 +126,26 @@ fn fetch_image_labels(image_id: &str) -> HashMap<String, String> {
 
     let output = match output {
         Ok(o) if o.status.success() => o,
-        _ => return HashMap::new(),
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            eprintln!("warning: failed to inspect docker image {image_id}: {stderr}");
+            return HashMap::new();
+        }
+        Err(e) => {
+            eprintln!("warning: failed to inspect docker image {image_id}: {e}");
+            return HashMap::new();
+        }
     };
 
-    let stdout = match String::from_utf8(output.stdout) {
-        Ok(s) => s,
-        Err(_) => return HashMap::new(),
-    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
 
-    oci::parse_labels(&stdout).unwrap_or_default()
+    match oci::parse_labels(&stdout) {
+        Ok(labels) => labels,
+        Err(e) => {
+            eprintln!("warning: failed to parse labels for docker image {image_id}: {e}");
+            HashMap::new()
+        }
+    }
 }
 
 #[cfg(test)]
