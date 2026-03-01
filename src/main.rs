@@ -330,11 +330,13 @@ fn cmd_report(config: &Config, format: &ReportFormat, limit: usize, paginate: bo
     let contributions = ContributionMap::new();
 
     // Build contribution summary from stored records
-    let contribution_summary = storage
-        .get_contributions(None, None)
-        .ok()
-        .map(|records| ContributionSummary::from_records(&records))
-        .filter(|s| !s.is_empty());
+    let contribution_summary = {
+        let records = storage
+            .get_contributions(None, None)
+            .context("Failed to load contributions")?;
+        let s = ContributionSummary::from_records(&records);
+        if s.is_empty() { None } else { Some(s) }
+    };
 
     match format {
         ReportFormat::Terminal => {
@@ -418,7 +420,9 @@ fn cmd_contribute(config: &Config, limit: usize, types: Option<&str>) -> Result<
     }
 
     // Load existing contributions to filter already-completed actions.
-    let contributions = storage.get_contributions(None, None).unwrap_or_default();
+    let contributions = storage
+        .get_contributions(None, None)
+        .context("Failed to load contributions")?;
 
     // Generate suggestions from enrichment data.
     let suggestions = suggest::generate_suggestions(&projects, &contributions, &filter);
@@ -476,7 +480,9 @@ fn cmd_contribute_star(project: Option<&str>) -> Result<()> {
             // Pick a random unstarred project from the database
             let storage = Storage::open().context("Failed to open database")?;
             let projects = storage.all_projects().context("Failed to load projects")?;
-            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+            let contributions = storage
+                .get_contributions(None, None)
+                .context("Failed to load contributions")?;
 
             let suggestions =
                 suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Star]);
@@ -535,7 +541,7 @@ fn cmd_contribute_star(project: Option<&str>) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     if !storage
         .has_contribution(&repo_url, &ContributionRecordKind::Star)
-        .unwrap_or(false)
+        .context("Failed to check contribution status")?
     {
         storage.save_contribution(
             &repo_url,
@@ -557,7 +563,9 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
             // Pick a random project with good first issues from the database
             let storage = Storage::open().context("Failed to open database")?;
             let projects = storage.all_projects().context("Failed to load projects")?;
-            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+            let contributions = storage
+                .get_contributions(None, None)
+                .context("Failed to load contributions")?;
 
             let suggestions =
                 suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Issue]);
@@ -645,7 +653,7 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
     if !storage
         .has_contribution(&repo_url, &ContributionRecordKind::Issue)
-        .unwrap_or(false)
+        .context("Failed to check contribution status")?
     {
         storage.save_contribution(
             &repo_url,
@@ -687,7 +695,9 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
         None => {
             // Pick a random project with funding channels from the database
             let projects = storage.all_projects().context("Failed to load projects")?;
-            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+            let contributions = storage
+                .get_contributions(None, None)
+                .context("Failed to load contributions")?;
 
             let suggestions =
                 suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Donate]);
@@ -735,7 +745,7 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
     // Record the contribution in the database
     if !storage
         .has_contribution(&project_url, &ContributionRecordKind::Donation)
-        .unwrap_or(false)
+        .context("Failed to check contribution status")?
     {
         storage.save_contribution(
             &project_url,
@@ -788,7 +798,9 @@ fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
         None => {
             // Pick a random project with a contributing guide from the database
             let projects = storage.all_projects().context("Failed to load projects")?;
-            let contributions = storage.get_contributions(None, None).unwrap_or_default();
+            let contributions = storage
+                .get_contributions(None, None)
+                .context("Failed to load contributions")?;
 
             let suggestions =
                 suggest::generate_suggestions(&projects, &contributions, &[SuggestionKind::Docs]);
@@ -819,7 +831,7 @@ fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
     // Record the contribution in the database
     if !storage
         .has_contribution(&project_url, &ContributionRecordKind::Docs)
-        .unwrap_or(false)
+        .context("Failed to check contribution status")?
     {
         storage.save_contribution(
             &project_url,

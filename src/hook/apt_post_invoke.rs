@@ -49,7 +49,15 @@ impl Hook for AptPostInvokeHook {
         let storage = match ctx.db_path {
             Some(ref path) => match Storage::open_path(path) {
                 Ok(s) => s,
-                Err(_) => return Ok(()),
+                Err(e) => {
+                    if path.exists() {
+                        eprintln!(
+                            "warning: failed to open database at {}: {e}",
+                            path.display()
+                        );
+                    }
+                    return Ok(());
+                }
             },
             None => match Storage::open() {
                 Ok(s) => s,
@@ -58,14 +66,26 @@ impl Hook for AptPostInvokeHook {
         };
 
         // Load all enriched projects from the database.
-        let projects = storage.all_projects().unwrap_or_default();
+        let projects = match storage.all_projects() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("warning: failed to load projects: {e}");
+                return Ok(());
+            }
+        };
         if projects.is_empty() {
             return Ok(());
         }
 
         // Generate suggestions using the contribute engine, excluding
         // contributions the user has already completed.
-        let contributions = storage.get_contributions(None, None).unwrap_or_default();
+        let contributions = match storage.get_contributions(None, None) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("warning: failed to load contributions: {e}");
+                Vec::new()
+            }
+        };
         let suggestions =
             suggest::generate_suggestions(&projects, &contributions, SuggestionKind::ALL);
 
