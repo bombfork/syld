@@ -29,6 +29,6 @@ rand = "0.10.0"
 
 [dev-dependencies]
 assert_cmd = "2.1.2"
-jsonschema = "0.43"
+jsonschema = "0.44"
 predicates = "3.1.4"
 tempfile = "3.26.0"
