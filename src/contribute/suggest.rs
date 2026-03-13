@@ -349,6 +349,9 @@ mod tests {
             url: None,
             contributed_at: Utc::now(),
             source: None,
+            amount: None,
+            currency: None,
+            via: None,
         }
     }
 
