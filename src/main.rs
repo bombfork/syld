@@ -180,6 +180,18 @@ enum ContributeCommands {
         /// Project URL or GitHub owner/repo (e.g. github.com/curl/curl or curl/curl)
         #[arg(long)]
         project: Option<String>,
+
+        /// Amount donated (optional)
+        #[arg(long)]
+        amount: Option<f64>,
+
+        /// Currency code (e.g. USD, EUR) (optional)
+        #[arg(long)]
+        currency: Option<String>,
+
+        /// Funding channel/platform used (e.g. GitHub Sponsors, Patreon) (optional)
+        #[arg(long)]
+        via: Option<String>,
     },
 
     /// Open or print a project's contributing guide
@@ -234,9 +246,17 @@ fn main() -> Result<()> {
             None => cmd_contribute(&config, limit, types.as_deref()),
             Some(ContributeCommands::Star { project }) => cmd_contribute_star(project.as_deref()),
             Some(ContributeCommands::Issue { project }) => cmd_contribute_issue(project.as_deref()),
-            Some(ContributeCommands::Donate { project }) => {
-                cmd_contribute_donate(project.as_deref())
-            }
+            Some(ContributeCommands::Donate {
+                project,
+                amount,
+                currency,
+                via,
+            }) => cmd_contribute_donate(
+                project.as_deref(),
+                amount,
+                currency.as_deref(),
+                via.as_deref(),
+            ),
             Some(ContributeCommands::Docs { project }) => cmd_contribute_docs(project.as_deref()),
         },
         Some(Commands::Setup) => cmd_setup(&config),
@@ -674,7 +694,12 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
+fn cmd_contribute_donate(
+    project: Option<&str>,
+    amount: Option<f64>,
+    currency: Option<&str>,
+    via: Option<&str>,
+) -> Result<()> {
     let storage = Storage::open().context("Failed to open database")?;
 
     let (project_url, funding) = match project {
@@ -748,6 +773,15 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
         eprintln!("  {} — {}", channel.platform, channel.url);
     }
 
+    // Generate title string if amount and currency are provided
+    let title = match (amount, currency) {
+        (Some(amt), Some(curr)) => Some(match via {
+            Some(channel) => format!("{} {} via {}", amt, curr, channel),
+            None => format!("{} {}", amt, curr),
+        }),
+        _ => None,
+    };
+
     // Record the contribution in the database
     if !storage
         .has_contribution(&project_url, &ContributionRecordKind::Donation)
@@ -756,13 +790,13 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
         storage.save_contribution(&NewContribution {
             project_url: &project_url,
             kind: &ContributionRecordKind::Donation,
-            title: None,
+            title: title.as_deref(),
             url: funding.first().map(|f| f.url.as_str()),
             contributed_at: chrono::Utc::now(),
             source: Some("contribute_donate"),
-            amount: None,
-            currency: None,
-            via: None,
+            amount,
+            currency,
+            via,
         })?;
     }
 
