@@ -54,8 +54,11 @@ impl ContributionSummary {
                 ContributionRecordKind::PullRequest => summary.pull_requests += 1,
                 ContributionRecordKind::Donation => {
                     summary.donations += 1;
-                    // Parse amount from title like "10 USD via GitHub Sponsors" or "25 EUR"
-                    if let Some(title) = &record.title {
+                    // Use structured fields if available, otherwise fall back to parsing title
+                    if let (Some(amount), Some(currency)) = (record.amount, &record.currency) {
+                        *donation_amounts.entry(currency.clone()).or_default() += amount;
+                    } else if let Some(title) = &record.title {
+                        // Fallback: parse amount from title like "10 USD via GitHub Sponsors" or "25 EUR"
                         let parts: Vec<&str> = title.split_whitespace().collect();
                         if parts.len() >= 2
                             && let Ok(amount) = parts[0].parse::<f64>()
@@ -228,6 +231,27 @@ mod tests {
         }
     }
 
+    fn make_record_with_structured_fields(
+        kind: ContributionRecordKind,
+        title: Option<&str>,
+        amount: Option<f64>,
+        currency: Option<&str>,
+        via: Option<&str>,
+    ) -> ContributionRecord {
+        ContributionRecord {
+            id: 0,
+            project_url: "https://github.com/example".to_string(),
+            kind,
+            title: title.map(|s| s.to_string()),
+            url: None,
+            contributed_at: Utc::now(),
+            source: None,
+            amount,
+            currency: currency.map(|s| s.to_string()),
+            via: via.map(|s| s.to_string()),
+        }
+    }
+
     #[test]
     fn contribution_summary_from_records() {
         let records = vec![
@@ -275,5 +299,84 @@ mod tests {
         // Mixed currencies — no total
         assert!(summary.donation_total.is_none());
         assert!(summary.donation_currency.is_none());
+    }
+
+    #[test]
+    fn contribution_summary_structured_donation_fields() {
+        let records = vec![
+            make_record_with_structured_fields(
+                ContributionRecordKind::Donation,
+                Some("Donation via GitHub Sponsors"),
+                Some(10.0),
+                Some("USD"),
+                Some("GitHub Sponsors"),
+            ),
+            make_record_with_structured_fields(
+                ContributionRecordKind::Donation,
+                Some("Donation via Ko-fi"),
+                Some(25.0),
+                Some("USD"),
+                Some("Ko-fi"),
+            ),
+        ];
+
+        let summary = ContributionSummary::from_records(&records);
+        assert_eq!(summary.donations, 2);
+        assert_eq!(summary.donation_total, Some(35.0));
+        assert_eq!(summary.donation_currency, Some("USD".to_string()));
+    }
+
+    #[test]
+    fn contribution_summary_fallback_to_title_parsing() {
+        // Legacy records with NULL structured fields should fall back to parsing title
+        let records = vec![
+            make_record(
+                ContributionRecordKind::Donation,
+                Some("10 USD via GitHub Sponsors"),
+            ),
+            make_record(ContributionRecordKind::Donation, Some("25 USD")),
+        ];
+
+        let summary = ContributionSummary::from_records(&records);
+        assert_eq!(summary.donations, 2);
+        assert_eq!(summary.donation_total, Some(35.0));
+        assert_eq!(summary.donation_currency, Some("USD".to_string()));
+    }
+
+    #[test]
+    fn contribution_summary_structured_fields_take_precedence() {
+        // Structured fields should take precedence over title parsing
+        let records = vec![make_record_with_structured_fields(
+            ContributionRecordKind::Donation,
+            Some("50 EUR"), // This should be ignored in favor of structured fields
+            Some(10.0),
+            Some("USD"),
+            Some("GitHub Sponsors"),
+        )];
+
+        let summary = ContributionSummary::from_records(&records);
+        assert_eq!(summary.donations, 1);
+        assert_eq!(summary.donation_total, Some(10.0));
+        assert_eq!(summary.donation_currency, Some("USD".to_string()));
+    }
+
+    #[test]
+    fn contribution_summary_mixed_structured_and_legacy() {
+        // Mix of structured fields and legacy title parsing
+        let records = vec![
+            make_record_with_structured_fields(
+                ContributionRecordKind::Donation,
+                None,
+                Some(15.0),
+                Some("USD"),
+                Some("GitHub Sponsors"),
+            ),
+            make_record(ContributionRecordKind::Donation, Some("20 USD via Ko-fi")),
+        ];
+
+        let summary = ContributionSummary::from_records(&records);
+        assert_eq!(summary.donations, 2);
+        assert_eq!(summary.donation_total, Some(35.0));
+        assert_eq!(summary.donation_currency, Some("USD".to_string()));
     }
 }
