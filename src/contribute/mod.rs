@@ -197,6 +197,20 @@ impl std::fmt::Display for ContributionRecordKind {
     }
 }
 
+/// Parameters for inserting a new contribution into the database.
+#[derive(Debug)]
+pub struct NewContribution<'a> {
+    pub project_url: &'a str,
+    pub kind: &'a ContributionRecordKind,
+    pub title: Option<&'a str>,
+    pub url: Option<&'a str>,
+    pub contributed_at: chrono::DateTime<chrono::Utc>,
+    pub source: Option<&'a str>,
+    pub amount: Option<f64>,
+    pub currency: Option<&'a str>,
+    pub via: Option<&'a str>,
+}
+
 /// A record of a completed contribution, stored in the database.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContributionRecord {
@@ -220,6 +234,15 @@ pub struct ContributionRecord {
 
     /// How this record was created: `"github_sync"`, `"manual"`, `"donation_import"`.
     pub source: Option<String>,
+
+    /// Donation amount (only set when `kind == Donation`).
+    pub amount: Option<f64>,
+
+    /// Currency code, e.g. `"USD"` (only set when `kind == Donation`).
+    pub currency: Option<String>,
+
+    /// Funding channel, e.g. `"GitHub Sponsors"` (only set when `kind == Donation`).
+    pub via: Option<String>,
 }
 
 impl std::fmt::Display for ContributionKind {

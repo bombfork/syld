@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::ContributionRecordKind;
+use super::{ContributionRecordKind, NewContribution};
 use crate::contribute::github_good_first_issues::extract_github_owner_repo;
 use crate::project::UpstreamProject;
 use crate::storage::Storage;
@@ -247,14 +247,17 @@ pub fn sync_github_contributions(
                     if already_recorded {
                         continue;
                     }
-                    if let Err(e) = storage.save_contribution(
-                        &gp.repo_url,
-                        &ContributionRecordKind::Star,
-                        None,
-                        None,
-                        Utc::now(),
-                        Some("github_sync"),
-                    ) {
+                    if let Err(e) = storage.save_contribution(&NewContribution {
+                        project_url: &gp.repo_url,
+                        kind: &ContributionRecordKind::Star,
+                        title: None,
+                        url: None,
+                        contributed_at: Utc::now(),
+                        source: Some("github_sync"),
+                        amount: None,
+                        currency: None,
+                        via: None,
+                    }) {
                         eprintln!("warning: failed to save star for {}: {e}", gp.project.name);
                         continue;
                     }
@@ -288,14 +291,17 @@ pub fn sync_github_contributions(
                         continue;
                     }
                     let dt = parse_datetime(&item.created_at);
-                    if let Err(e) = storage.save_contribution(
-                        &gp.repo_url,
-                        &ContributionRecordKind::Issue,
-                        Some(&item.title),
-                        Some(&item.html_url),
-                        dt,
-                        Some("github_sync"),
-                    ) {
+                    if let Err(e) = storage.save_contribution(&NewContribution {
+                        project_url: &gp.repo_url,
+                        kind: &ContributionRecordKind::Issue,
+                        title: Some(&item.title),
+                        url: Some(&item.html_url),
+                        contributed_at: dt,
+                        source: Some("github_sync"),
+                        amount: None,
+                        currency: None,
+                        via: None,
+                    }) {
                         eprintln!("warning: failed to save issue for {}: {e}", gp.project.name);
                     } else {
                         result.issues += 1;
@@ -326,14 +332,17 @@ pub fn sync_github_contributions(
                         continue;
                     }
                     let dt = parse_datetime(&item.created_at);
-                    if let Err(e) = storage.save_contribution(
-                        &gp.repo_url,
-                        &ContributionRecordKind::PullRequest,
-                        Some(&item.title),
-                        Some(&item.html_url),
-                        dt,
-                        Some("github_sync"),
-                    ) {
+                    if let Err(e) = storage.save_contribution(&NewContribution {
+                        project_url: &gp.repo_url,
+                        kind: &ContributionRecordKind::PullRequest,
+                        title: Some(&item.title),
+                        url: Some(&item.html_url),
+                        contributed_at: dt,
+                        source: Some("github_sync"),
+                        amount: None,
+                        currency: None,
+                        via: None,
+                    }) {
                         eprintln!("warning: failed to save PR for {}: {e}", gp.project.name);
                     } else {
                         result.pull_requests += 1;

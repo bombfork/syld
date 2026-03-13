@@ -12,7 +12,7 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, params};
 
 use crate::config::Config;
-use crate::contribute::{ContributionRecord, ContributionRecordKind};
+use crate::contribute::{ContributionRecord, ContributionRecordKind, NewContribution};
 use crate::discover::{InstalledPackage, PackageSource};
 use crate::project::{FundingChannel, UpstreamProject};
 
@@ -131,7 +131,10 @@ impl Storage {
                 title           TEXT,
                 url             TEXT,
                 contributed_at  TEXT    NOT NULL,
-                source          TEXT
+                source          TEXT,
+                amount          REAL,
+                currency        TEXT,
+                via             TEXT
             );
 
             CREATE INDEX IF NOT EXISTS idx_contributions_project_url
@@ -147,6 +150,18 @@ impl Storage {
         let _ = self
             .conn
             .execute_batch("ALTER TABLE projects ADD COLUMN description TEXT;");
+
+        // Add structured donation fields to contributions table (for databases created before
+        // these fields existed). Ignore errors — they fire harmlessly when columns already exist.
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE contributions ADD COLUMN amount REAL;");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE contributions ADD COLUMN currency TEXT;");
+        let _ = self
+            .conn
+            .execute_batch("ALTER TABLE contributions ADD COLUMN via TEXT;");
 
         Ok(())
     }
@@ -503,25 +518,20 @@ impl Storage {
     // --- Contribution history ---
 
     /// Record a contribution, returning the row ID.
-    pub fn save_contribution(
-        &self,
-        project_url: &str,
-        kind: &ContributionRecordKind,
-        title: Option<&str>,
-        url: Option<&str>,
-        contributed_at: DateTime<Utc>,
-        source: Option<&str>,
-    ) -> Result<i64> {
+    pub fn save_contribution(&self, c: &NewContribution<'_>) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO contributions (project_url, kind, title, url, contributed_at, source)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO contributions (project_url, kind, title, url, contributed_at, source, amount, currency, via)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                project_url,
-                kind.as_db_str(),
-                title,
-                url,
-                contributed_at.to_rfc3339(),
-                source,
+                c.project_url,
+                c.kind.as_db_str(),
+                c.title,
+                c.url,
+                c.contributed_at.to_rfc3339(),
+                c.source,
+                c.amount,
+                c.currency,
+                c.via,
             ],
         )?;
 
@@ -535,7 +545,7 @@ impl Storage {
         project_url: Option<&str>,
     ) -> Result<Vec<ContributionRecord>> {
         let mut sql = String::from(
-            "SELECT id, project_url, kind, title, url, contributed_at, source
+            "SELECT id, project_url, kind, title, url, contributed_at, source, amount, currency, via
              FROM contributions WHERE 1=1",
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -565,10 +575,24 @@ impl Storage {
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<f64>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                 ))
             })?
             .map(|r| {
-                let (id, project_url, kind_str, title, url, contributed_at_str, source) = r?;
+                let (
+                    id,
+                    project_url,
+                    kind_str,
+                    title,
+                    url,
+                    contributed_at_str,
+                    source,
+                    amount,
+                    currency,
+                    via,
+                ) = r?;
                 let kind = ContributionRecordKind::from_db(&kind_str)
                     .with_context(|| format!("Unknown contribution kind: {kind_str}"))?;
                 let contributed_at: DateTime<Utc> =
@@ -583,6 +607,9 @@ impl Storage {
                     url,
                     contributed_at,
                     source,
+                    amount,
+                    currency,
+                    via,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -593,7 +620,7 @@ impl Storage {
     /// Get all contributions since a given timestamp.
     pub fn contributions_since(&self, since: DateTime<Utc>) -> Result<Vec<ContributionRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, project_url, kind, title, url, contributed_at, source
+            "SELECT id, project_url, kind, title, url, contributed_at, source, amount, currency, via
              FROM contributions
              WHERE contributed_at >= ?1
              ORDER BY contributed_at",
@@ -609,10 +636,24 @@ impl Storage {
                     row.get::<_, Option<String>>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<f64>>(7)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, Option<String>>(9)?,
                 ))
             })?
             .map(|r| {
-                let (id, project_url, kind_str, title, url, contributed_at_str, source) = r?;
+                let (
+                    id,
+                    project_url,
+                    kind_str,
+                    title,
+                    url,
+                    contributed_at_str,
+                    source,
+                    amount,
+                    currency,
+                    via,
+                ) = r?;
                 let kind = ContributionRecordKind::from_db(&kind_str)
                     .with_context(|| format!("Unknown contribution kind: {kind_str}"))?;
                 let contributed_at: DateTime<Utc> =
@@ -627,6 +668,9 @@ impl Storage {
                     url,
                     contributed_at,
                     source,
+                    amount,
+                    currency,
+                    via,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -711,14 +755,17 @@ impl Storage {
                 None => format!("{} {}", amount, currency),
             };
 
-            self.save_contribution(
+            self.save_contribution(&NewContribution {
                 project_url,
-                &ContributionRecordKind::Donation,
-                Some(&title),
-                None,
-                donated_at,
-                Some("donation_import"),
-            )?;
+                kind: &ContributionRecordKind::Donation,
+                title: Some(&title),
+                url: None,
+                contributed_at: donated_at,
+                source: Some("donation_import"),
+                amount: None,
+                currency: None,
+                via: None,
+            })?;
 
             imported += 1;
         }
@@ -1378,14 +1425,17 @@ mod tests {
         let now = Utc::now();
 
         let id = storage
-            .save_contribution(
-                "https://github.com/example/repo",
-                &ContributionRecordKind::Star,
-                None,
-                Some("https://github.com/example/repo"),
-                now,
-                Some("github_sync"),
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: Some("https://github.com/example/repo"),
+                contributed_at: now,
+                source: Some("github_sync"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .expect("save_contribution failed");
 
         assert_eq!(id, 1);
@@ -1415,34 +1465,43 @@ mod tests {
         let now = Utc::now();
 
         storage
-            .save_contribution(
-                "https://github.com/a",
-                &ContributionRecordKind::Star,
-                None,
-                None,
-                now,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/a",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: now,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
         storage
-            .save_contribution(
-                "https://github.com/b",
-                &ContributionRecordKind::Issue,
-                Some("Fix bug"),
-                None,
-                now,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/b",
+                kind: &ContributionRecordKind::Issue,
+                title: Some("Fix bug"),
+                url: None,
+                contributed_at: now,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
         storage
-            .save_contribution(
-                "https://github.com/c",
-                &ContributionRecordKind::Star,
-                None,
-                None,
-                now,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/c",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: now,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
 
         let stars = storage
@@ -1463,34 +1522,43 @@ mod tests {
         let now = Utc::now();
 
         storage
-            .save_contribution(
-                "https://github.com/a",
-                &ContributionRecordKind::Star,
-                None,
-                None,
-                now,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/a",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: now,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
         storage
-            .save_contribution(
-                "https://github.com/a",
-                &ContributionRecordKind::Issue,
-                Some("Fix bug"),
-                None,
-                now,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/a",
+                kind: &ContributionRecordKind::Issue,
+                title: Some("Fix bug"),
+                url: None,
+                contributed_at: now,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
         storage
-            .save_contribution(
-                "https://github.com/b",
-                &ContributionRecordKind::Star,
-                None,
-                None,
-                now,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/b",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: now,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
 
         let project_a = storage
@@ -1521,24 +1589,30 @@ mod tests {
         let recent = Utc::now() - Duration::hours(1);
 
         storage
-            .save_contribution(
-                "https://github.com/old",
-                &ContributionRecordKind::Star,
-                None,
-                None,
-                old,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/old",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: old,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
         storage
-            .save_contribution(
-                "https://github.com/new",
-                &ContributionRecordKind::Issue,
-                Some("Recent issue"),
-                None,
-                recent,
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/new",
+                kind: &ContributionRecordKind::Issue,
+                title: Some("Recent issue"),
+                url: None,
+                contributed_at: recent,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
 
         let contributions = storage
@@ -1563,14 +1637,17 @@ mod tests {
     fn has_contribution_true() {
         let storage = open_memory();
         storage
-            .save_contribution(
-                "https://github.com/example",
-                &ContributionRecordKind::Star,
-                None,
-                None,
-                Utc::now(),
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: Utc::now(),
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
 
         assert!(
@@ -1594,14 +1671,17 @@ mod tests {
     fn has_contribution_different_kind() {
         let storage = open_memory();
         storage
-            .save_contribution(
-                "https://github.com/example",
-                &ContributionRecordKind::Star,
-                None,
-                None,
-                Utc::now(),
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: Utc::now(),
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
 
         assert!(
@@ -1615,14 +1695,17 @@ mod tests {
     fn has_contribution_url_true() {
         let storage = open_memory();
         storage
-            .save_contribution(
-                "https://github.com/example",
-                &ContributionRecordKind::Issue,
-                Some("Fix bug"),
-                Some("https://github.com/example/issues/1"),
-                Utc::now(),
-                None,
-            )
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example",
+                kind: &ContributionRecordKind::Issue,
+                title: Some("Fix bug"),
+                url: Some("https://github.com/example/issues/1"),
+                contributed_at: Utc::now(),
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
             .unwrap();
 
         assert!(
@@ -1710,6 +1793,64 @@ mod tests {
         let storage = open_memory();
         let imported = storage.import_donations_as_contributions().unwrap();
         assert_eq!(imported, 0);
+    }
+
+    #[test]
+    fn save_and_retrieve_structured_donation_fields() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("10 USD via GitHub Sponsors"),
+                url: None,
+                contributed_at: now,
+                source: Some("donation_import"),
+                amount: Some(10.0),
+                currency: Some("USD"),
+                via: Some("GitHub Sponsors"),
+            })
+            .unwrap();
+
+        let contributions = storage
+            .get_contributions(Some(&ContributionRecordKind::Donation), None)
+            .unwrap();
+        assert_eq!(contributions.len(), 1);
+
+        let c = &contributions[0];
+        assert_eq!(c.amount, Some(10.0));
+        assert_eq!(c.currency, Some("USD".to_string()));
+        assert_eq!(c.via, Some("GitHub Sponsors".to_string()));
+    }
+
+    #[test]
+    fn structured_donation_fields_default_to_none() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example",
+                kind: &ContributionRecordKind::Star,
+                title: None,
+                url: None,
+                contributed_at: now,
+                source: None,
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        let contributions = storage.get_contributions(None, None).unwrap();
+        assert_eq!(contributions.len(), 1);
+
+        let c = &contributions[0];
+        assert!(c.amount.is_none());
+        assert!(c.currency.is_none());
+        assert!(c.via.is_none());
     }
 
     // --- Backward-compatible deserialization test ---

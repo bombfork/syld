@@ -9,10 +9,10 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use syld::config::Config;
-use syld::contribute::ContributionRecordKind;
 use syld::contribute::github_good_first_issues::{GhIssue, extract_github_owner_repo};
 use syld::contribute::github_sync::is_gh_available;
 use syld::contribute::suggest::{self, SuggestionKind};
+use syld::contribute::{ContributionRecordKind, NewContribution};
 use syld::discover::{self, InstalledPackage};
 use syld::enrich::EnrichmentMap;
 use syld::enrich::github::contributing_file_exists;
@@ -543,14 +543,17 @@ fn cmd_contribute_star(project: Option<&str>) -> Result<()> {
         .has_contribution(&repo_url, &ContributionRecordKind::Star)
         .context("Failed to check contribution status")?
     {
-        storage.save_contribution(
-            &repo_url,
-            &ContributionRecordKind::Star,
-            None,
-            None,
-            chrono::Utc::now(),
-            Some("contribute_star"),
-        )?;
+        storage.save_contribution(&NewContribution {
+            project_url: &repo_url,
+            kind: &ContributionRecordKind::Star,
+            title: None,
+            url: None,
+            contributed_at: chrono::Utc::now(),
+            source: Some("contribute_star"),
+            amount: None,
+            currency: None,
+            via: None,
+        })?;
     }
 
     Ok(())
@@ -655,14 +658,17 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
         .has_contribution(&repo_url, &ContributionRecordKind::Issue)
         .context("Failed to check contribution status")?
     {
-        storage.save_contribution(
-            &repo_url,
-            &ContributionRecordKind::Issue,
-            None,
-            None,
-            chrono::Utc::now(),
-            Some("contribute_issue"),
-        )?;
+        storage.save_contribution(&NewContribution {
+            project_url: &repo_url,
+            kind: &ContributionRecordKind::Issue,
+            title: None,
+            url: None,
+            contributed_at: chrono::Utc::now(),
+            source: Some("contribute_issue"),
+            amount: None,
+            currency: None,
+            via: None,
+        })?;
     }
 
     Ok(())
@@ -747,14 +753,17 @@ fn cmd_contribute_donate(project: Option<&str>) -> Result<()> {
         .has_contribution(&project_url, &ContributionRecordKind::Donation)
         .context("Failed to check contribution status")?
     {
-        storage.save_contribution(
-            &project_url,
-            &ContributionRecordKind::Donation,
-            None,
-            funding.first().map(|f| f.url.as_str()),
-            chrono::Utc::now(),
-            Some("contribute_donate"),
-        )?;
+        storage.save_contribution(&NewContribution {
+            project_url: &project_url,
+            kind: &ContributionRecordKind::Donation,
+            title: None,
+            url: funding.first().map(|f| f.url.as_str()),
+            contributed_at: chrono::Utc::now(),
+            source: Some("contribute_donate"),
+            amount: None,
+            currency: None,
+            via: None,
+        })?;
     }
 
     Ok(())
@@ -833,14 +842,17 @@ fn cmd_contribute_docs(project: Option<&str>) -> Result<()> {
         .has_contribution(&project_url, &ContributionRecordKind::Docs)
         .context("Failed to check contribution status")?
     {
-        storage.save_contribution(
-            &project_url,
-            &ContributionRecordKind::Docs,
-            None,
-            Some(&contributing_url),
-            chrono::Utc::now(),
-            Some("contribute_docs"),
-        )?;
+        storage.save_contribution(&NewContribution {
+            project_url: &project_url,
+            kind: &ContributionRecordKind::Docs,
+            title: None,
+            url: Some(&contributing_url),
+            contributed_at: chrono::Utc::now(),
+            source: Some("contribute_docs"),
+            amount: None,
+            currency: None,
+            via: None,
+        })?;
     }
 
     Ok(())
