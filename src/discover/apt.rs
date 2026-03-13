@@ -319,4 +319,50 @@ Description: A simple package";
         let pkg = parse_dpkg_entry(entry).unwrap().unwrap();
         assert_eq!(pkg.description.as_deref(), Some("A simple package"));
     }
+
+    #[test]
+    fn utf8_in_description() {
+        let entry = "\
+Package: nettools
+Version: 1.0
+Status: install ok installed
+Description: Outil réseau — données";
+        let pkg = parse_dpkg_entry(entry).unwrap().unwrap();
+        assert_eq!(pkg.description.as_deref(), Some("Outil réseau — données"));
+    }
+
+    #[test]
+    fn utf8_in_package_name() {
+        let entry = "\
+Package: café-utils
+Version: 0.1
+Status: install ok installed";
+        let pkg = parse_dpkg_entry(entry).unwrap().unwrap();
+        assert_eq!(pkg.name, "café-utils");
+    }
+
+    #[test]
+    fn colon_in_homepage_url() {
+        let entry = "\
+Package: myapp
+Version: 2.0
+Status: install ok installed
+Homepage: https://example.com:8080/path";
+        let pkg = parse_dpkg_entry(entry).unwrap().unwrap();
+        assert_eq!(pkg.url.as_deref(), Some("https://example.com:8080/path"));
+    }
+
+    #[test]
+    fn continuation_on_non_description_field_ignored() {
+        let entry = "\
+Package: pkg
+Version: 1.0
+Status: install ok installed
+Maintainer: Someone
+ Extra maintainer line that should be ignored
+Description: The real description";
+        let pkg = parse_dpkg_entry(entry).unwrap().unwrap();
+        // The continuation line under Maintainer should not appear in description
+        assert_eq!(pkg.description.as_deref(), Some("The real description"));
+    }
 }

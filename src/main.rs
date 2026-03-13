@@ -1315,4 +1315,49 @@ github: user1
             .collect();
         assert_eq!(String::from_utf8(decoded).unwrap(), "Hello");
     }
+
+    #[test]
+    fn base64_decode_empty_input() {
+        assert_eq!(base64_decode_chunk(""), None);
+    }
+
+    #[test]
+    fn base64_decode_single_char() {
+        assert_eq!(base64_decode_chunk("A"), None);
+    }
+
+    #[test]
+    fn base64_decode_no_padding() {
+        // "AQID" decodes to [1, 2, 3]
+        assert_eq!(base64_decode_chunk("AQID"), Some(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn base64_decode_single_padding() {
+        // "AQI=" decodes to [1, 2]
+        assert_eq!(base64_decode_chunk("AQI="), Some(vec![1, 2]));
+    }
+
+    #[test]
+    fn base64_decode_double_padding() {
+        // "AQ==" decodes to [1]
+        assert_eq!(base64_decode_chunk("AQ=="), Some(vec![1]));
+    }
+
+    #[test]
+    fn base64_decode_plus_and_slash() {
+        // '+' maps to 62 (0b111110), '/' maps to 63 (0b111111)
+        // "+/" as a 2-char chunk: byte0=62, byte1=63
+        // result[0] = (62 << 2) | (63 >> 4) = 248 | 3 = 251
+        assert_eq!(base64_decode_chunk("+/"), Some(vec![251]));
+    }
+
+    #[test]
+    fn base64_decode_invalid_chars() {
+        // '!' and '@' map to 0xFF and are skipped in output
+        // Two valid chars needed for any output; "!@" has none valid
+        // But length >= 2, so it enters the logic — bytes[0]=0xFF, bytes[1]=0xFF
+        // First byte condition fails, so result is empty
+        assert_eq!(base64_decode_chunk("!@"), Some(vec![]));
+    }
 }
