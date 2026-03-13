@@ -762,9 +762,9 @@ impl Storage {
                 url: None,
                 contributed_at: donated_at,
                 source: Some("donation_import"),
-                amount: None,
-                currency: None,
-                via: None,
+                amount: Some(*amount),
+                currency: Some(currency),
+                via: via.as_deref(),
             })?;
 
             imported += 1;
@@ -1760,10 +1760,19 @@ mod tests {
         assert_eq!(contributions.len(), 2);
         assert_eq!(contributions[0].source, Some("donation_import".to_string()));
         assert_eq!(contributions[0].title, Some("25 EUR".to_string()));
+        // Verify structured donation fields are populated for import
+        assert_eq!(contributions[0].amount, Some(25.0));
+        assert_eq!(contributions[0].currency, Some("EUR".to_string()));
+        assert_eq!(contributions[0].via, None);
+
         assert_eq!(
             contributions[1].title,
             Some("10 USD via GitHub Sponsors".to_string())
         );
+        // Verify structured donation fields are populated for import with via channel
+        assert_eq!(contributions[1].amount, Some(10.0));
+        assert_eq!(contributions[1].currency, Some("USD".to_string()));
+        assert_eq!(contributions[1].via, Some("GitHub Sponsors".to_string()));
     }
 
     #[test]
