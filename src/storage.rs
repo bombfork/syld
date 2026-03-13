@@ -163,6 +163,89 @@ impl Storage {
             .conn
             .execute_batch("ALTER TABLE contributions ADD COLUMN via TEXT;");
 
+        // Backfill structured donation fields from title strings for records that don't have them.
+        self.backfill_donation_fields()?;
+
+        Ok(())
+    }
+
+    /// Backfill structured donation fields (amount, currency, via) from title strings
+    /// for records that have NULL amount fields.
+    ///
+    /// This is a one-time migration that parses donation titles like:
+    /// - "10 USD via GitHub Sponsors" → amount=10, currency="USD", via="GitHub Sponsors"
+    /// - "25 EUR" → amount=25, currency="EUR", via=NULL
+    ///
+    /// Records that fail to parse are logged but don't block the migration.
+    fn backfill_donation_fields(&self) -> Result<()> {
+        // Check if there are any records with NULL amount
+        let has_nulls: i64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM contributions WHERE kind = 'donation' AND amount IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        if has_nulls == 0 {
+            // Nothing to backfill
+            return Ok(());
+        }
+
+        // Get all donation records with NULL amount that have a title to parse
+        let mut stmt = self.conn.prepare(
+            "SELECT id, title FROM contributions
+             WHERE kind = 'donation' AND amount IS NULL AND title IS NOT NULL
+             ORDER BY id",
+        )?;
+
+        let records: Vec<(i64, String)> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        drop(stmt);
+
+        // Process each record
+        let mut updated = 0;
+        let mut failed = 0;
+
+        for (id, title) in records {
+            match parse_donation_title(&title) {
+                Some((amount, currency, via)) => {
+                    // Update the record with parsed values
+                    let result = self.conn.execute(
+                        "UPDATE contributions SET amount = ?1, currency = ?2, via = ?3 WHERE id = ?4",
+                        params![amount, currency, via, id],
+                    );
+
+                    match result {
+                        Ok(_) => updated += 1,
+                        Err(e) => {
+                            eprintln!("Failed to update contribution {}: {}", id, e);
+                            failed += 1;
+                        }
+                    }
+                }
+                None => {
+                    eprintln!(
+                        "Failed to parse donation title for contribution {}: \"{}\"",
+                        id, title
+                    );
+                    failed += 1;
+                }
+            }
+        }
+
+        if failed > 0 {
+            eprintln!(
+                "Backfill complete: {} records updated, {} failed to parse",
+                updated, failed
+            );
+        }
+
         Ok(())
     }
 
@@ -850,6 +933,39 @@ fn parse_package_source(s: &str) -> Result<PackageSource> {
         "podman" => Ok(PackageSource::Podman),
         other => anyhow::bail!("Unknown package source: {other}"),
     }
+}
+
+/// Parse a donation title string into structured fields (amount, currency, via).
+///
+/// Expects formats like:
+/// - "10 USD via GitHub Sponsors" → (10.0, "USD", Some("GitHub Sponsors"))
+/// - "25 EUR" → (25.0, "EUR", None)
+/// - "5.5 GBP via Ko-fi" → (5.5, "GBP", Some("Ko-fi"))
+///
+/// Returns None if parsing fails (not enough parts, invalid amount, etc.)
+fn parse_donation_title(title: &str) -> Option<(f64, String, Option<String>)> {
+    let parts: Vec<&str> = title.split_whitespace().collect();
+
+    // Need at least amount and currency: "10 USD"
+    if parts.len() < 2 {
+        return None;
+    }
+
+    // Parse amount (first part)
+    let amount = parts[0].parse::<f64>().ok()?;
+
+    // Extract currency (second part)
+    let currency = parts[1].to_string();
+
+    // Extract via channel if present ("via" keyword at index 2)
+    let via = if parts.len() > 2 && parts[2] == "via" && parts.len() > 3 {
+        // Join all parts after "via" into a single string
+        Some(parts[3..].join(" "))
+    } else {
+        None
+    };
+
+    Some((amount, currency, via))
 }
 
 #[cfg(test)]
@@ -1897,5 +2013,310 @@ mod tests {
         assert!(loaded.documentation_url.is_none());
         assert!(loaded.good_first_issues_url.is_none());
         assert!(loaded.stars.is_none());
+    }
+
+    // --- Donation field backfill tests ---
+
+    #[test]
+    fn parse_donation_title_with_via() {
+        let result = parse_donation_title("10 USD via GitHub Sponsors");
+        assert_eq!(
+            result,
+            Some((10.0, "USD".to_string(), Some("GitHub Sponsors".to_string())))
+        );
+    }
+
+    #[test]
+    fn parse_donation_title_without_via() {
+        let result = parse_donation_title("25 EUR");
+        assert_eq!(result, Some((25.0, "EUR".to_string(), None)));
+    }
+
+    #[test]
+    fn parse_donation_title_decimal_amount() {
+        let result = parse_donation_title("5.5 GBP via Ko-fi");
+        assert_eq!(
+            result,
+            Some((5.5, "GBP".to_string(), Some("Ko-fi".to_string())))
+        );
+    }
+
+    #[test]
+    fn parse_donation_title_multi_word_channel() {
+        let result = parse_donation_title("15 AUD via GitHub Sponsors Plus");
+        assert_eq!(
+            result,
+            Some((
+                15.0,
+                "AUD".to_string(),
+                Some("GitHub Sponsors Plus".to_string())
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_donation_title_invalid_no_currency() {
+        let result = parse_donation_title("10");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_donation_title_invalid_non_numeric_amount() {
+        let result = parse_donation_title("abc USD");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_donation_title_invalid_empty() {
+        let result = parse_donation_title("");
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn parse_donation_title_via_without_channel() {
+        // "via" keyword without a channel name after it is silently ignored
+        let result = parse_donation_title("20 USD via");
+        assert_eq!(result, Some((20.0, "USD".to_string(), None)));
+    }
+
+    #[test]
+    fn backfill_donation_fields_basic() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        // Insert a donation contribution with NULL structured fields
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("50 USD via GitHub Sponsors"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        // Verify the record was saved with NULL fields
+        let records = storage.get_contributions(None, None).unwrap();
+        assert_eq!(records.len(), 1);
+        assert!(records[0].amount.is_none());
+        assert!(records[0].currency.is_none());
+        assert!(records[0].via.is_none());
+
+        // Re-open the database (triggers migration)
+        drop(storage);
+        // Verify the backfill works within the same session
+        let storage = open_memory();
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("50 USD via GitHub Sponsors"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        // Manually call backfill
+        storage.backfill_donation_fields().unwrap();
+
+        // Verify fields were filled
+        let records = storage.get_contributions(None, None).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].amount, Some(50.0));
+        assert_eq!(records[0].currency, Some("USD".to_string()));
+        assert_eq!(records[0].via, Some("GitHub Sponsors".to_string()));
+    }
+
+    #[test]
+    fn backfill_donation_fields_mixed() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        // Insert multiple donations: some with fields, some without
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo1",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("100 USD via Ko-fi"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo2",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("25 EUR"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: Some(25.0),
+                currency: Some("EUR"),
+                via: None,
+            })
+            .unwrap();
+
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo3",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("15 GBP via GitHub Sponsors"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        // Backfill
+        storage.backfill_donation_fields().unwrap();
+
+        // Verify all records
+        let records = storage.get_contributions(None, None).unwrap();
+        assert_eq!(records.len(), 3);
+
+        // First record should be backfilled
+        assert_eq!(records[0].amount, Some(100.0));
+        assert_eq!(records[0].currency, Some("USD".to_string()));
+        assert_eq!(records[0].via, Some("Ko-fi".to_string()));
+
+        // Second record should be unchanged (already had fields)
+        assert_eq!(records[1].amount, Some(25.0));
+        assert_eq!(records[1].currency, Some("EUR".to_string()));
+        assert_eq!(records[1].via, None);
+
+        // Third record should be backfilled
+        assert_eq!(records[2].amount, Some(15.0));
+        assert_eq!(records[2].currency, Some("GBP".to_string()));
+        assert_eq!(records[2].via, Some("GitHub Sponsors".to_string()));
+    }
+
+    #[test]
+    fn backfill_donation_fields_idempotent() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        // Insert a donation with NULL fields
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("75 USD"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        // First backfill
+        storage.backfill_donation_fields().unwrap();
+
+        let records = storage.get_contributions(None, None).unwrap();
+        assert_eq!(records[0].amount, Some(75.0));
+        assert_eq!(records[0].currency, Some("USD".to_string()));
+
+        // Second backfill should be safe
+        storage.backfill_donation_fields().unwrap();
+
+        let records = storage.get_contributions(None, None).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].amount, Some(75.0));
+        assert_eq!(records[0].currency, Some("USD".to_string()));
+    }
+
+    #[test]
+    fn backfill_donation_fields_unparseable() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        // Insert donations with NULL fields, some parseable and some not
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo1",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("invalid_title"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo2",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("50 USD"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: None,
+                currency: None,
+                via: None,
+            })
+            .unwrap();
+
+        // Backfill should not fail, but log the unparseable record
+        storage.backfill_donation_fields().unwrap();
+
+        let records = storage.get_contributions(None, None).unwrap();
+        assert_eq!(records.len(), 2);
+
+        // Unparseable record should still have NULL fields
+        assert!(records[0].amount.is_none());
+        assert!(records[0].currency.is_none());
+        assert!(records[0].via.is_none());
+
+        // Parseable record should be backfilled
+        assert_eq!(records[1].amount, Some(50.0));
+        assert_eq!(records[1].currency, Some("USD".to_string()));
+    }
+
+    #[test]
+    fn backfill_donation_fields_no_null_amounts() {
+        let storage = open_memory();
+        let now = Utc::now();
+
+        // Insert only donations with structured fields already present
+        storage
+            .save_contribution(&NewContribution {
+                project_url: "https://github.com/example/repo",
+                kind: &ContributionRecordKind::Donation,
+                title: Some("100 USD"),
+                url: None,
+                contributed_at: now,
+                source: Some("manual"),
+                amount: Some(100.0),
+                currency: Some("USD"),
+                via: None,
+            })
+            .unwrap();
+
+        // Backfill should complete without error
+        storage.backfill_donation_fields().unwrap();
+
+        let records = storage.get_contributions(None, None).unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].amount, Some(100.0));
     }
 }
