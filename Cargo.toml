@@ -28,7 +28,7 @@ dialoguer = "0.12"
 rand = "0.10.0"
 
 [dev-dependencies]
-assert_cmd = "2.1.2"
-jsonschema = "0.44"
+assert_cmd = "2.2.0"
+jsonschema = "0.45"
 predicates = "3.1.4"
-tempfile = "3.26.0"
+tempfile = "3.27.0"
