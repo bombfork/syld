@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 
 use super::EnrichmentBackend;
-use crate::contribute::github_good_first_issues::extract_github_owner_repo;
+use crate::contribute::github_beginner_issues::extract_github_owner_repo;
 use crate::project::{FundingChannel, UpstreamProject};
 
 pub struct GitHubBackend;

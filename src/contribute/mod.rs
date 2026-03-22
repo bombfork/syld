@@ -14,7 +14,7 @@
 //!
 //! Follow these steps to add a new contribution type. For a complete
 //! reference implementation, see
-//! [`github_good_first_issues::GitHubGoodFirstIssuesBackend`].
+//! [`github_beginner_issues::GitHubBeginnerIssuesBackend`].
 //!
 //! ## 1. Create a module file
 //!
@@ -109,7 +109,8 @@
 //! See the parent issue <https://github.com/bombfork/syld/issues/26> for
 //! the full design context.
 
-pub mod github_good_first_issues;
+pub mod beginner_labels;
+pub mod github_beginner_issues;
 pub mod github_sync;
 pub mod suggest;
 
@@ -329,7 +330,7 @@ pub trait ContributionBackend {
 /// [`is_available()`](ContributionBackend::is_available) check passes.
 pub fn active_backends(_config: &Config) -> Vec<Box<dyn ContributionBackend>> {
     let candidates: Vec<Box<dyn ContributionBackend>> = vec![Box::new(
-        github_good_first_issues::GitHubGoodFirstIssuesBackend,
+        github_beginner_issues::GitHubBeginnerIssuesBackend,
     )];
 
     candidates

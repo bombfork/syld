@@ -1,21 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! GitHub good-first-issues contribution backend.
+//! GitHub beginner-friendly issues contribution backend.
 //!
 //! Discovers beginner-friendly issues from GitHub repositories that the user
-//! depends on. Uses the `gh` CLI to query the GitHub API, which handles
-//! authentication transparently.
+//! depends on. Supports multiple beginner-friendly labels and auto-detection.
+//! Uses the `gh` CLI to query the GitHub API, which handles authentication
+//! transparently.
 
 use std::process::Command;
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use super::beginner_labels;
 use super::{ContributionBackend, ContributionKind, ContributionOpportunity};
 use crate::project::UpstreamProject;
 
-/// Backend that discovers "good first issue" labeled issues from GitHub repos.
-pub struct GitHubGoodFirstIssuesBackend;
+/// Backend that discovers beginner-friendly labeled issues from GitHub repos.
+pub struct GitHubBeginnerIssuesBackend;
 
 /// A single issue from the `gh` CLI JSON output.
 #[derive(Debug, Deserialize)]
@@ -31,9 +33,9 @@ pub struct GhLabel {
     pub name: String,
 }
 
-impl ContributionBackend for GitHubGoodFirstIssuesBackend {
+impl ContributionBackend for GitHubBeginnerIssuesBackend {
     fn name(&self) -> &str {
-        "github_good_first_issues"
+        "github_beginner_issues"
     }
 
     fn is_available(&self) -> bool {
@@ -59,6 +61,9 @@ impl ContributionBackend for GitHubGoodFirstIssuesBackend {
             None => return Ok(Vec::new()),
         };
 
+        // Select an appropriate beginner-friendly label for this repository
+        let label = beginner_labels::select_label(&owner_repo, None)?;
+
         let output = Command::new("gh")
             .args([
                 "issue",
@@ -66,7 +71,7 @@ impl ContributionBackend for GitHubGoodFirstIssuesBackend {
                 "--repo",
                 &owner_repo,
                 "--label",
-                "good first issue",
+                &label,
                 "--state",
                 "open",
                 "--limit",
@@ -269,7 +274,7 @@ mod tests {
 
     #[test]
     fn find_opportunities_skips_non_github_projects() {
-        let backend = GitHubGoodFirstIssuesBackend;
+        let backend = GitHubBeginnerIssuesBackend;
         let project = UpstreamProject {
             name: "test".to_string(),
             repo_url: Some("https://gitlab.com/owner/repo".to_string()),
@@ -291,7 +296,7 @@ mod tests {
 
     #[test]
     fn find_opportunities_skips_projects_without_repo_url() {
-        let backend = GitHubGoodFirstIssuesBackend;
+        let backend = GitHubBeginnerIssuesBackend;
         let project = UpstreamProject {
             name: "test".to_string(),
             repo_url: None,

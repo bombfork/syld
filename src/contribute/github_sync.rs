@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use super::{ContributionRecordKind, NewContribution};
-use crate::contribute::github_good_first_issues::extract_github_owner_repo;
+use crate::contribute::github_beginner_issues::extract_github_owner_repo;
 use crate::project::UpstreamProject;
 use crate::storage::Storage;
 
