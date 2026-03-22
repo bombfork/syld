@@ -16,6 +16,11 @@ pub struct Config {
     /// Number of parallel enrichment threads (default: 4)
     #[serde(default)]
     pub enrich_jobs: Option<usize>,
+
+    /// Custom beginner-friendly labels for discovering issues
+    /// If not specified, defaults to common labels like "good first issue"
+    #[serde(default)]
+    pub beginner_labels: Option<Vec<String>>,
 }
 
 impl Config {
@@ -80,10 +85,19 @@ mod tests {
         let toml = r#"
 enrich = true
 enrich_jobs = 8
+beginner_labels = ["good first issue", "help wanted", "beginner friendly"]
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.enrich);
         assert_eq!(config.enrich_jobs, Some(8));
+        assert_eq!(
+            config.beginner_labels,
+            Some(vec![
+                "good first issue".to_string(),
+                "help wanted".to_string(),
+                "beginner friendly".to_string()
+            ])
+        );
     }
 
     #[test]
@@ -91,6 +105,7 @@ enrich_jobs = 8
         let config: Config = toml::from_str("").unwrap();
         assert!(!config.enrich);
         assert_eq!(config.enrich_jobs, None);
+        assert_eq!(config.beginner_labels, None);
     }
 
     #[test]

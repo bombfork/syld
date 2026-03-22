@@ -9,7 +9,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 use syld::config::Config;
-use syld::contribute::github_good_first_issues::{GhIssue, extract_github_owner_repo};
+use syld::contribute::beginner_labels;
+use syld::contribute::github_beginner_issues::{GhIssue, extract_github_owner_repo};
 use syld::contribute::github_sync::is_gh_available;
 use syld::contribute::suggest::{self, SuggestionKind};
 use syld::contribute::{ContributionRecordKind, NewContribution};
@@ -610,7 +611,25 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
     };
 
     if is_gh_available() {
-        // List good first issues via gh CLI
+        // Select an appropriate beginner-friendly label for this repository
+        let label = match beginner_labels::select_label(&owner_repo, None) {
+            Ok(label) => label,
+            Err(e) => {
+                eprintln!("Failed to determine beginner-friendly label: {}", e);
+                eprintln!("\nNo beginner-friendly labels found in this repository.");
+                eprintln!("Consider adding one of these standard labels to help newcomers:");
+                eprintln!("  - 'good first issue' (GitHub standard)");
+                eprintln!("  - 'help wanted' (widely recognized)");
+                eprintln!("  - 'beginner friendly'");
+                eprintln!(
+                    "\nBrowse all issues: https://github.com/{}/issues",
+                    owner_repo
+                );
+                return Ok(());
+            }
+        };
+
+        // List beginner-friendly issues via gh CLI
         let output = Command::new("gh")
             .args([
                 "issue",
@@ -618,7 +637,7 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
                 "--repo",
                 &owner_repo,
                 "--label",
-                "good first issue",
+                &label,
                 "--state",
                 "open",
                 "--limit",
@@ -637,11 +656,12 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
                 serde_json::from_str(&stdout).context("Failed to parse gh issue list JSON")?;
 
             if issues.is_empty() {
-                eprintln!("No good first issues found for {owner_repo}");
+                eprintln!("No beginner-friendly issues found for {owner_repo}");
+                eprintln!("(searched for label: '{}')", label);
                 eprintln!("  Browse all issues: https://github.com/{owner_repo}/issues");
             } else {
                 eprintln!(
-                    "Good first issues for {owner_repo} ({} found):\n",
+                    "Beginner-friendly issues for {owner_repo} ({} found):\n",
                     issues.len()
                 );
                 for (i, issue) in issues.iter().enumerate() {
@@ -657,16 +677,20 @@ fn cmd_contribute_issue(project: Option<&str>) -> Result<()> {
             {
                 eprintln!("Could not access issues for {owner_repo}");
                 eprintln!(
-                    "  Browse issues: https://github.com/{owner_repo}/issues?q=label:%22good+first+issue%22"
+                    "  Browse issues: https://github.com/{owner_repo}/issues?q=label:%22{label}%22"
                 );
             } else {
                 anyhow::bail!("Failed to list issues for {owner_repo}: {stderr}");
             }
         }
     } else {
+        // Select label for fallback URL
+        let label = beginner_labels::select_label(&owner_repo, None)
+            .unwrap_or_else(|_| "good first issue".to_string());
+
         // Fallback: print the URL
-        eprintln!("Good first issues for {owner_repo}:");
-        eprintln!("  https://github.com/{owner_repo}/issues?q=label:%22good+first+issue%22");
+        eprintln!("Beginner-friendly issues for {owner_repo}:");
+        eprintln!("  https://github.com/{owner_repo}/issues?q=label:%22{label}%22");
         eprintln!(
             "\nTip: install and authenticate the `gh` CLI to list issues directly from the terminal."
         );
