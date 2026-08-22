@@ -16,7 +16,7 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 toml = "1.1"
 directories = "6"
-comfy-table = "7"
+comfy-table = "8"
 rusqlite = { version = "0.40", features = ["bundled"] }
 reqwest = { version = "0.13", features = ["json", "rustls", "blocking"], default-features = false }
 anyhow = "1"
@@ -29,6 +29,6 @@ rand = "0.10.2"
 
 [dev-dependencies]
 assert_cmd = "2.2.2"
-jsonschema = "0.46"
+jsonschema = "0.50"
 predicates = "3.1.4"
 tempfile = "3.27.0"
