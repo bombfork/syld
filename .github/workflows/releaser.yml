@@ -101,5 +101,5 @@ jobs:
           version: v0.12.0
           command: ${{ steps.mode.outputs.command }} ${{ inputs.dry_run && '--dry-run' || '' }}
           app-id: ${{ vars.MAINTENANCE_APP_ID }}
-          app-installation-id: ${{ vars.MAINTENANCE_APP_INSTALLATION_ID }}
+          app-installation-id: ${{ vars.MAINTENANCE_APP_INST_ID }}
           app-private-key: ${{ secrets.MAINTENANCE_APP_PEM }}
