@@ -1,0 +1,35 @@
+adapter:
+  type: generic
+  build:
+    command: |
+      set -eu
+      rustup target add aarch64-unknown-linux-gnu
+      cargo install cross --git https://github.com/cross-rs/cross
+      sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      cargo build --release --target x86_64-unknown-linux-gnu
+      cross build --release --target aarch64-unknown-linux-gnu
+      strip target/x86_64-unknown-linux-gnu/release/syld
+      aarch64-linux-gnu-strip target/aarch64-unknown-linux-gnu/release/syld
+      mkdir -p dist
+      cp target/x86_64-unknown-linux-gnu/release/syld dist/syld-x86_64-unknown-linux-gnu
+      cp target/aarch64-unknown-linux-gnu/release/syld dist/syld-aarch64-unknown-linux-gnu
+    artifacts:
+      - dist/syld-x86_64-unknown-linux-gnu
+      - dist/syld-aarch64-unknown-linux-gnu
+  setup_steps:
+    - |
+      - uses: jdx/mise-action@v2
+  version:
+    locations:
+      - path: Cargo.toml
+        regex: '^version = "(.*)"$'
+      - path: Cargo.lock
+        regex: 'name = "syld"\nversion = "(.*)"'
+release:
+  default_branch: main
+  auth:
+    mode: github_app
+    app:
+      app_id_var: MAINTENANCE_APP_ID
+      installation_id_var: MAINTENANCE_APP_INSTALLATION_ID
+      private_key_secret: MAINTENANCE_APP_PEM

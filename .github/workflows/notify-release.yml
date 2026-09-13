@@ -1,0 +1,19 @@
+name: "Notify release"
+
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: appleboy/discord-action@v1.2.0
+        with:
+          webhook_url: ${{ secrets.DISCORD_TECH_WEBHOOK }}
+          message: |
+            A new release has been published:
+            - **Tag**: ${{ github.event.release.tag_name }}
+            - **Release**: ${{ github.event.release.html_url }}
