@@ -70,6 +70,7 @@ pub fn run_setup(config: &Config) -> Result<()> {
     if hooks.is_empty() {
         eprintln!("No installable hooks detected for this system.\n");
     } else {
+        let mut to_install = Vec::new();
         for hook in &hooks {
             let install_hook = Confirm::new()
                 .with_prompt(format!(
@@ -81,8 +82,11 @@ pub fn run_setup(config: &Config) -> Result<()> {
                 .context("Failed to read hook preference")?;
 
             if install_hook {
-                hook.install()?;
+                to_install.push(hook);
             }
+        }
+        for hook in to_install {
+            hook.install()?;
         }
         eprintln!();
     }

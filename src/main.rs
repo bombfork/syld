@@ -240,7 +240,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     let config = Config::load()?;
 
-    match cli.command {
+    let result = match cli.command {
         None => cmd_scan(&config, false, None),
         Some(Commands::Scan {
             force_refresh,
@@ -278,7 +278,17 @@ fn main() -> Result<()> {
         Some(Commands::Setup) => cmd_setup(&config),
         Some(Commands::Install { command }) => cmd_install(&command),
         Some(Commands::Uninstall { command }) => cmd_uninstall(&command),
+    };
+
+    // Ctrl-C at a sudo prompt usually kills syld along with sudo (same process
+    // group); this branch is defensive for sudo builds that consume SIGINT.
+    if let Err(e) = &result
+        && e.downcast_ref::<install::ElevationError>() == Some(&install::ElevationError::Cancelled)
+    {
+        eprintln!("Cancelled.");
+        std::process::exit(0);
     }
+    result
 }
 
 fn run_scan(config: &Config) -> Result<Vec<InstalledPackage>> {
@@ -1304,6 +1314,7 @@ fn cmd_uninstall_hook(name: Option<&str>) -> Result<()> {
             return Ok(());
         }
 
+        let mut selected = Vec::new();
         for hook in &installed {
             let confirmed = dialoguer::Confirm::new()
                 .with_prompt(format!(
@@ -1315,8 +1326,11 @@ fn cmd_uninstall_hook(name: Option<&str>) -> Result<()> {
                 .context("Failed to read confirmation")?;
 
             if confirmed {
-                hook.uninstall()?;
+                selected.push(hook);
             }
+        }
+        for hook in selected {
+            hook.uninstall()?;
         }
         Ok(())
     }

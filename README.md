@@ -109,6 +109,8 @@ syld report --format html   # HTML report
 
 Package manager hooks surface contribution opportunities after transactions. A prior `syld scan` + `syld report` (with `enrich = true` in config) is needed for the hook to have data.
 
+Hook install/uninstall writes to system paths: syld tries a direct write first and falls back to sudo (prompting for your password if needed); if authentication or the elevated command fails, syld exits with an error.
+
 ```sh
 syld hook list                      # show available hooks
 syld hook run pacman-post-transaction  # run a hook manually (reads stdin)
