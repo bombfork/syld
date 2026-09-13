@@ -81,7 +81,7 @@ pub fn run_setup(config: &Config) -> Result<()> {
                 .context("Failed to read hook preference")?;
 
             if install_hook {
-                (hook.install_fn)()?;
+                hook.install()?;
             }
         }
         eprintln!();

@@ -108,6 +108,39 @@ fn install_hook_unknown_name_fails() {
 }
 
 #[test]
+fn top_level_help_shows_uninstall() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("uninstall"));
+}
+
+#[test]
+fn uninstall_hook_help_shows_subcommand() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["uninstall", "hook", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("hook"));
+}
+
+#[test]
+fn uninstall_hook_unknown_name_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    syld_with_db(tmp.path(), data.path())
+        .args(["uninstall", "hook", "nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unknown hook"));
+}
+
+#[test]
 fn scan_produces_no_stdout() {
     let tmp = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();

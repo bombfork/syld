@@ -10,7 +10,25 @@ use crate::config::Config;
 
 use super::{remove_with_elevated, resolve_binary_path, write_with_elevated};
 
+/// Install path for the pacman ALPM hook.
+///
+/// Named `99-syld.hook` so it runs after all other ALPM hooks, ensuring its
+/// output appears last and isn't buried among other messages.
+pub const PACMAN_HOOK_PATH: &str = "/usr/share/libalpm/hooks/99-syld.hook";
+
+/// Install path for the APT post-invoke configuration.
+pub const APT_HOOK_PATH: &str = "/etc/apt/apt.conf.d/99-syld";
+
+/// Install path for the DNF post-transaction-actions action file.
+///
+/// Requires the `post-transaction-actions` DNF plugin.
+pub const DNF_HOOK_PATH: &str = "/etc/dnf/plugins/post-transaction-actions.d/syld.action";
+
 /// An installable hook descriptor.
+///
+/// Each hook declares where it is installed and how its file contents are
+/// generated, so install, uninstall, and installed-detection are generic
+/// operations over descriptors.
 pub struct InstallableHook {
     /// Hook identifier (e.g. `"pacman-post-transaction"`).
     pub name: &'static str,
@@ -18,8 +36,28 @@ pub struct InstallableHook {
     pub description: &'static str,
     /// Whether the hook is relevant on this system.
     pub available: bool,
-    /// Function to run the installation.
-    pub install_fn: fn() -> Result<()>,
+    /// Path the hook file is installed to.
+    pub install_path: &'static str,
+    /// Function generating the hook file contents.
+    pub content_fn: fn() -> Result<String>,
+}
+
+impl InstallableHook {
+    /// Whether the hook file is present on disk.
+    pub fn is_installed(&self) -> bool {
+        Path::new(self.install_path).exists()
+    }
+
+    /// Write the hook file to its install path.
+    pub fn install(&self) -> Result<()> {
+        let content = (self.content_fn)()?;
+        write_with_elevated(Path::new(self.install_path), &content)
+    }
+
+    /// Remove the hook file from its install path.
+    pub fn uninstall(&self) -> Result<()> {
+        remove_with_elevated(Path::new(self.install_path))
+    }
 }
 
 /// Generate the contents of a pacman ALPM hook file.
@@ -59,42 +97,6 @@ pub fn generate_apt_hook(binary_path: &Path, db_path: &Path) -> String {
     )
 }
 
-/// Install the pacman post-transaction hook.
-///
-/// Installs as `99-syld.hook` so it runs after all other ALPM hooks,
-/// ensuring its output appears last and isn't buried among other messages.
-/// Removes the old `syld.hook` if present to avoid running twice.
-pub fn install_pacman_hook() -> Result<()> {
-    let binary = resolve_binary_path()?;
-    let data_dir = Config::data_dir().context("Failed to resolve data directory for hook")?;
-    let db_path = data_dir.join("syld.db");
-    let content = generate_pacman_hook(&binary, &db_path);
-
-    // Remove the old hook path if it exists (renamed to 99-syld.hook)
-    let old_path = PathBuf::from("/usr/share/libalpm/hooks/syld.hook");
-    if old_path.exists() {
-        let _ = remove_with_elevated(&old_path);
-    }
-
-    let path = PathBuf::from("/usr/share/libalpm/hooks/99-syld.hook");
-    write_with_elevated(&path, &content)
-}
-
-/// Install the APT post-invoke hook.
-///
-/// Installs as `99-syld` in `/etc/apt/apt.conf.d/` so it runs after APT
-/// finishes installing or upgrading packages. The `|| true` in the command
-/// ensures hook errors never break APT operations.
-pub fn install_apt_hook() -> Result<()> {
-    let binary = resolve_binary_path()?;
-    let data_dir = Config::data_dir().context("Failed to resolve data directory for hook")?;
-    let db_path = data_dir.join("syld.db");
-    let content = generate_apt_hook(&binary, &db_path);
-
-    let path = PathBuf::from("/etc/apt/apt.conf.d/99-syld");
-    write_with_elevated(&path, &content)
-}
-
 /// Generate the contents of a DNF post-transaction-actions action file.
 ///
 /// `db_path` is baked into the command so the hook works correctly
@@ -108,20 +110,26 @@ pub fn generate_dnf_hook(binary_path: &Path, db_path: &Path) -> String {
     )
 }
 
-/// Install the DNF post-transaction hook.
-///
-/// Installs as `syld.action` in `/etc/dnf/plugins/post-transaction-actions.d/`
-/// so it runs after DNF finishes installing or upgrading packages. This uses
-/// the `post-transaction-actions` DNF plugin. The `|| true` in the command
-/// ensures hook errors never break DNF operations.
-pub fn install_dnf_hook() -> Result<()> {
+/// Resolve the syld binary and database paths baked into hook commands.
+fn binary_and_db_path() -> Result<(PathBuf, PathBuf)> {
     let binary = resolve_binary_path()?;
     let data_dir = Config::data_dir().context("Failed to resolve data directory for hook")?;
-    let db_path = data_dir.join("syld.db");
-    let content = generate_dnf_hook(&binary, &db_path);
+    Ok((binary, data_dir.join("syld.db")))
+}
 
-    let path = PathBuf::from("/etc/dnf/plugins/post-transaction-actions.d/syld.action");
-    write_with_elevated(&path, &content)
+fn pacman_hook_content() -> Result<String> {
+    let (binary, db_path) = binary_and_db_path()?;
+    Ok(generate_pacman_hook(&binary, &db_path))
+}
+
+fn apt_hook_content() -> Result<String> {
+    let (binary, db_path) = binary_and_db_path()?;
+    Ok(generate_apt_hook(&binary, &db_path))
+}
+
+fn dnf_hook_content() -> Result<String> {
+    let (binary, db_path) = binary_and_db_path()?;
+    Ok(generate_dnf_hook(&binary, &db_path))
 }
 
 /// Return the registry of hooks that can be installed.
@@ -131,19 +139,22 @@ pub fn installable_hooks() -> Vec<InstallableHook> {
             name: "apt-post-invoke",
             description: "Run syld after APT installs/upgrades",
             available: Path::new("/var/lib/dpkg/status").is_file(),
-            install_fn: install_apt_hook,
+            install_path: APT_HOOK_PATH,
+            content_fn: apt_hook_content,
         },
         InstallableHook {
             name: "dnf-post-transaction",
             description: "Run syld after DNF installs/upgrades",
             available: Path::new("/var/lib/dnf").is_dir(),
-            install_fn: install_dnf_hook,
+            install_path: DNF_HOOK_PATH,
+            content_fn: dnf_hook_content,
         },
         InstallableHook {
             name: "pacman-post-transaction",
             description: "Run syld after pacman installs/upgrades",
             available: Path::new("/var/lib/pacman/local").is_dir(),
-            install_fn: install_pacman_hook,
+            install_path: PACMAN_HOOK_PATH,
+            content_fn: pacman_hook_content,
         },
     ]
 }
@@ -193,5 +204,26 @@ mod tests {
         assert!(hooks.iter().any(|h| h.name == "apt-post-invoke"));
         assert!(hooks.iter().any(|h| h.name == "dnf-post-transaction"));
         assert!(hooks.iter().any(|h| h.name == "pacman-post-transaction"));
+    }
+
+    #[test]
+    fn installable_hooks_have_absolute_unique_paths() {
+        let hooks = installable_hooks();
+        for hook in &hooks {
+            assert!(
+                hook.install_path.starts_with('/'),
+                "install path for {} is not absolute: {}",
+                hook.name,
+                hook.install_path
+            );
+        }
+        let mut paths: Vec<_> = hooks.iter().map(|h| h.install_path).collect();
+        paths.sort_unstable();
+        paths.dedup();
+        assert_eq!(paths.len(), hooks.len(), "install paths must be unique");
+        let mut names: Vec<_> = hooks.iter().map(|h| h.name).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), hooks.len(), "hook names must be unique");
     }
 }

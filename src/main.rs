@@ -109,6 +109,12 @@ enum Commands {
         #[command(subcommand)]
         command: InstallCommands,
     },
+
+    /// Uninstall syld integrations (package manager hooks)
+    Uninstall {
+        #[command(subcommand)]
+        command: UninstallCommands,
+    },
 }
 
 #[derive(Clone, clap::ValueEnum)]
@@ -156,6 +162,15 @@ enum InstallCommands {
     /// Install package manager hook(s)
     Hook {
         /// Hook name (omit for interactive selection)
+        name: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum UninstallCommands {
+    /// Uninstall package manager hook(s)
+    Hook {
+        /// Hook name (omit to interactively select among installed hooks)
         name: Option<String>,
     },
 }
@@ -262,6 +277,7 @@ fn main() -> Result<()> {
         },
         Some(Commands::Setup) => cmd_setup(&config),
         Some(Commands::Install { command }) => cmd_install(&command),
+        Some(Commands::Uninstall { command }) => cmd_uninstall(&command),
     }
 }
 
@@ -1216,7 +1232,7 @@ fn cmd_install_hook(name: Option<&str>) -> Result<()> {
     if let Some(name) = name {
         let hook = hooks.into_iter().find(|h| h.name == name);
         match hook {
-            Some(h) => (h.install_fn)(),
+            Some(h) => h.install(),
             None => {
                 anyhow::bail!(
                     "Unknown hook '{name}'. Available hooks: {}",
@@ -1247,7 +1263,62 @@ fn cmd_install_hook(name: Option<&str>) -> Result<()> {
             .interact()
             .context("Failed to read selection")?;
 
-        (available[selection].install_fn)()
+        available[selection].install()
+    }
+}
+
+fn cmd_uninstall(command: &UninstallCommands) -> Result<()> {
+    match command {
+        UninstallCommands::Hook { name } => cmd_uninstall_hook(name.as_deref()),
+    }
+}
+
+fn cmd_uninstall_hook(name: Option<&str>) -> Result<()> {
+    let hooks = install::hook_install::installable_hooks();
+
+    if let Some(name) = name {
+        let hook = hooks.into_iter().find(|h| h.name == name);
+        match hook {
+            Some(h) => {
+                if !h.is_installed() {
+                    eprintln!("Hook '{name}' is not installed.");
+                    return Ok(());
+                }
+                h.uninstall()
+            }
+            None => {
+                anyhow::bail!(
+                    "Unknown hook '{name}'. Available hooks: {}",
+                    install::hook_install::installable_hooks()
+                        .iter()
+                        .map(|h| h.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+    } else {
+        let installed: Vec<_> = hooks.into_iter().filter(|h| h.is_installed()).collect();
+        if installed.is_empty() {
+            eprintln!("No syld hooks are currently installed.");
+            return Ok(());
+        }
+
+        for hook in &installed {
+            let confirmed = dialoguer::Confirm::new()
+                .with_prompt(format!(
+                    "Uninstall {} hook? ({})",
+                    hook.name, hook.description
+                ))
+                .default(true)
+                .interact()
+                .context("Failed to read confirmation")?;
+
+            if confirmed {
+                hook.uninstall()?;
+            }
+        }
+        Ok(())
     }
 }
 

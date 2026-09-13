@@ -31,7 +31,7 @@ It scans your system's package managers, figures out which open source projects 
 - **Privacy-first** — everything stays on your machine by default, no network calls unless you opt in
 - **Grouped output** — packages are grouped by upstream project so you can see who's behind what
 - **Systemd integration** — set-and-forget periodic scans with a user-level timer (`syld install service`)
-- **Hooks** — integration with package manager to be reminded on system updates about useful way to contribute (`syld install hooks`)
+- **Hooks** — integration with package manager to be reminded on system updates about useful way to contribute (`syld install hook`)
 
 ### Supported package managers
 
@@ -67,6 +67,7 @@ If you prefer non-interactive or scripted installs, use the individual install c
 ```sh
 syld install service --frequency weekly --enable   # systemd user timer
 syld install hook pacman-post-transaction           # pacman ALPM hook (requires sudo)
+syld uninstall hook pacman-post-transaction         # remove an installed hook (requires sudo)
 ```
 
 ## Usage
@@ -112,6 +113,7 @@ Package manager hooks surface contribution opportunities after transactions. A p
 syld hook list                      # show available hooks
 syld hook run pacman-post-transaction  # run a hook manually (reads stdin)
 syld install hook pacman-post-transaction  # install a hook
+syld uninstall hook                 # interactively remove installed hooks
 ```
 
 ## Configuration
