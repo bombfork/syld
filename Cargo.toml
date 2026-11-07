@@ -14,7 +14,7 @@ categories = ["command-line-utilities"]
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
-toml = "1.1"
+toml = "1.2"
 directories = "6"
 comfy-table = "8"
 rusqlite = { version = "0.41", features = ["bundled"] }
